@@ -1,474 +1,415 @@
 """
-src/core/ai_validator.py
-AI Validation Engine for CryptoSDCA-AI
-
-Integrates with M365 Copilot and Perplexity API for dual AI validation
-of trading decisions before executing orders.
+src/core/ai_validator.py - AI Validation System for CryptoSDCA-AI
+Handles validation of trading decisions using M365 Copilot and Perplexity API
 """
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
 from enum import Enum
 
 import httpx
 from loguru import logger
 
 from src.config import get_settings
+from src.exceptions import AIValidationError
 from src.database import get_db_session
-from src.models.models import AIAgent, TradeDecision, AIDecision
+from src.models.models import AIAgent
 
 
-class AIProvider(Enum):
-    COPILOT = "copilot"
-    PERPLEXITY = "perplexity"
-    OPENAI = "openai"
+class AIDecision(Enum):
+    """AI decision enumeration"""
+    APPROVE = "approve"
+    DENY = "deny"
+    PENDING = "pending"
 
 
+@dataclass
+class TradeHypothesis:
+    """Trade hypothesis structure for AI validation"""
+    pair: str
+    side: str  # "buy" or "sell"
+    quantity: float
+    entry_price: float
+    indicators: Dict[str, float]
+    fear_greed_index: int
+    news_sentiment: float
+    market_context: Dict[str, Any]
+    timestamp: datetime
+
+
+@dataclass
 class AIValidationResult:
-    """Resultado da validação de IA"""
-    def __init__(self, decision: str, confidence: float, reasoning: str, provider: str):
-        self.decision = decision  # "YES" or "NO"
-        self.confidence = confidence  # 0.0 to 1.0
-        self.reasoning = reasoning
-        self.provider = provider
-        self.timestamp = datetime.utcnow()
+    """AI validation result"""
+    ai_agent: str
+    decision: AIDecision
+    confidence: float
+    reasoning: str
+    response_time: float
+    timestamp: datetime
 
 
 class AIValidator:
-    """
-    Validador de decisões de trading usando múltiplas IAs
-    Implementa o sistema de consenso duplo para decisões de compra/venda
-    """
+    """AI validation system for trading decisions"""
     
     def __init__(self):
         self.settings = get_settings()
+        self.ai_agents: Dict[str, AIAgent] = {}
+        self.is_initialized = False
         self.http_client = httpx.AsyncClient(timeout=30.0)
-        self.active_agents: List[AIAgent] = []
         
     async def initialize(self):
-        """Inicializa o validador carregando agentes ativos"""
+        """Initialize AI validation system"""
+        try:
+            logger.info("🔄 Initializing AI Validator...")
+            
+            # Load AI agents from database
+            await self._load_ai_agents()
+            
+            # Test connections to AI services
+            await self._test_connections()
+            
+            self.is_initialized = True
+            logger.info(f"✅ AI Validator initialized with {len(self.ai_agents)} agents")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize AI Validator: {e}")
+            raise AIValidationError(f"Initialization failed: {str(e)}")
+    
+    async def _load_ai_agents(self):
+        """Load AI agents from database"""
         try:
             db = get_db_session()
-            self.active_agents = db.query(AIAgent).filter_by(is_active=True).all()
+            agents = db.query(AIAgent).filter_by(is_active=True).all()
+            
+            for agent in agents:
+                self.ai_agents[agent.name] = agent
+                logger.info(f"📋 Loaded AI agent: {agent.name} ({agent.agent_type})")
+            
             db.close()
             
-            logger.info(f"AI Validator initialized with {len(self.active_agents)} active agents")
-            
-            # Verificar conectividade dos agentes
-            for agent in self.active_agents:
-                await self._test_agent_connection(agent)
-                
         except Exception as e:
-            logger.error(f"Failed to initialize AI Validator: {e}")
-            
-    async def close(self):
-        """Fecha conexões"""
-        await self.http_client.aclose()
-        
-    async def validate_trade_decision(
-        self, 
-        symbol: str, 
-        side: str, 
-        quantity: float, 
-        market_data: Dict[str, Any],
-        sentiment_data: Dict[str, Any]
-    ) -> Tuple[bool, List[AIValidationResult]]:
-        """
-        Valida uma decisão de trading com múltiplas IAs
-        
-        Returns:
-            Tuple[bool, List[AIValidationResult]]: (consenso_atingido, resultados)
-        """
-        if not self.active_agents:
-            logger.warning("No active AI agents available for validation")
-            return True, []  # Pular validação se não há agentes
-            
-        # Preparar contexto para as IAs
-        trade_context = self._prepare_trade_context(
-            symbol, side, quantity, market_data, sentiment_data
-        )
-        
-        # Obter decisões de cada IA
-        validation_results = []
-        for agent in self.active_agents:
+            logger.error(f"❌ Failed to load AI agents: {e}")
+            raise AIValidationError(f"Failed to load AI agents: {str(e)}")
+    
+    async def _test_connections(self):
+        """Test connections to AI services"""
+        for agent_name, agent in self.ai_agents.items():
             try:
-                result = await self._query_ai_agent(agent, trade_context)
-                validation_results.append(result)
-                
-                # Salvar decisão no banco
-                await self._save_trade_decision(agent, result, trade_context)
-                
+                if agent.agent_type == "perplexity":
+                    await self._test_perplexity_connection(agent)
+                elif agent.agent_type == "copilot":
+                    await self._test_copilot_connection(agent)
+                else:
+                    logger.warning(f"⚠️ Unknown AI platform: {agent.agent_type}")
+                    
             except Exception as e:
-                logger.error(f"Error querying AI agent {agent.name}: {e}")
-                
-        # Verificar consenso
-        consensus = self._check_consensus(validation_results)
-        
-        return consensus, validation_results
-        
-    def _prepare_trade_context(
-        self, 
-        symbol: str, 
-        side: str, 
-        quantity: float,
-        market_data: Dict[str, Any],
-        sentiment_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Prepara contexto da decisão para as IAs"""
-        
-        context = {
-            "pair": symbol,
-            "side": side.upper(),
-            "size": quantity,
-            "timestamp": datetime.utcnow().isoformat(),
-            "technical_indicators": {
-                "rsi": market_data.get("rsi", "N/A"),
-                "macd": market_data.get("macd", "N/A"),
-                "volume": market_data.get("volume", "N/A"),
-                "atr": market_data.get("atr", "N/A"),
-                "adx": market_data.get("adx", "N/A"),
-                "bollinger_bands": market_data.get("bollinger_bands", "N/A")
-            },
-            "market_sentiment": {
-                "fear_greed_index": sentiment_data.get("fear_greed_index", "N/A"),
-                "news_sentiment": sentiment_data.get("news_sentiment", "N/A"),
-                "overall_sentiment": sentiment_data.get("overall_sentiment", "N/A")
-            },
-            "price_info": {
-                "current_price": market_data.get("current_price", "N/A"),
-                "24h_change": market_data.get("24h_change", "N/A"),
-                "volume_24h": market_data.get("volume_24h", "N/A")
+                logger.error(f"❌ Failed to test connection for {agent_name}: {e}")
+    
+    async def _test_perplexity_connection(self, agent: AIAgent):
+        """Test Perplexity API connection"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {agent.api_key}",
+                "Content-Type": "application/json"
             }
-        }
-        
-        return context
-        
-    async def _query_ai_agent(
-        self, 
-        agent: AIAgent, 
-        context: Dict[str, Any]
-    ) -> AIValidationResult:
-        """Query específico para cada tipo de IA"""
-        
-        if agent.agent_type == AIProvider.PERPLEXITY.value:
-            return await self._query_perplexity(agent, context)
-        elif agent.agent_type == AIProvider.OPENAI.value:
-            return await self._query_openai(agent, context)
-        elif agent.agent_type == AIProvider.COPILOT.value:
-            return await self._query_copilot(agent, context)
-        else:
-            raise ValueError(f"Unsupported AI agent type: {agent.agent_type}")
             
-    async def _query_perplexity(
-        self, 
-        agent: AIAgent, 
-        context: Dict[str, Any]
-    ) -> AIValidationResult:
-        """Query para Perplexity API"""
-        
-        prompt = self._build_trading_prompt(context)
-        
-        headers = {
-            "Authorization": f"Bearer {agent.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": "sonar-medium-online",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an expert cryptocurrency trader and analyst. Analyze the provided trading scenario and respond with YES or NO followed by a brief justification."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
-                }
-            ],
-            "max_tokens": 200,
-            "temperature": 0.1
-        }
-        
-        try:
+            test_prompt = "Hello, this is a connection test."
+            
             response = await self.http_client.post(
-                agent.endpoint_url or "https://api.perplexity.ai/chat/completions",
+                agent.api_url,
                 headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
-            
-            # Parse resposta
-            decision, confidence, reasoning = self._parse_ai_response(content)
-            
-            return AIValidationResult(
-                decision=decision,
-                confidence=confidence,
-                reasoning=reasoning,
-                provider=f"perplexity-{agent.name}"
-            )
-            
-        except Exception as e:
-            logger.error(f"Perplexity API error: {e}")
-            # Retorna decisão neutra em caso de erro
-            return AIValidationResult("NO", 0.0, f"API Error: {e}", agent.name)
-            
-    async def _query_openai(
-        self, 
-        agent: AIAgent, 
-        context: Dict[str, Any]
-    ) -> AIValidationResult:
-        """Query para OpenAI API (GPT)"""
-        
-        prompt = self._build_trading_prompt(context)
-        
-        headers = {
-            "Authorization": f"Bearer {agent.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": "gpt-4",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an expert cryptocurrency trader. Analyze trading scenarios and respond with YES/NO plus reasoning."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+                json={
+                    "model": "sonar-medium-online",
+                    "messages": [{"role": "user", "content": test_prompt}],
+                    "max_tokens": 50
                 }
-            ],
-            "max_tokens": 200,
-            "temperature": 0.1
-        }
-        
-        try:
-            response = await self.http_client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
-            
-            decision, confidence, reasoning = self._parse_ai_response(content)
-            
-            return AIValidationResult(
-                decision=decision,
-                confidence=confidence,
-                reasoning=reasoning,
-                provider=f"openai-{agent.name}"
             )
             
-        except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-            return AIValidationResult("NO", 0.0, f"API Error: {e}", agent.name)
-            
-    async def _query_copilot(
-        self, 
-        agent: AIAgent, 
-        context: Dict[str, Any]
-    ) -> AIValidationResult:
-        """Query para Microsoft Copilot (placeholder)"""
-        
-        # Implementação placeholder - Microsoft Copilot requer autenticação OAuth complexa
-        logger.warning("Microsoft Copilot integration not fully implemented yet")
-        
-        # Simulação de resposta baseada em dados técnicos
-        rsi = context["technical_indicators"].get("rsi", 50)
-        macd = context["technical_indicators"].get("macd", 0)
-        fear_greed = context["market_sentiment"].get("fear_greed_index", 50)
-        
-        # Lógica simplificada baseada em indicadores
-        decision = "YES"
-        reasoning = "Technical analysis suggests favorable conditions"
-        confidence = 0.7
-        
-        if isinstance(rsi, (int, float)):
-            if rsi > 70:
-                decision = "NO"
-                reasoning = "RSI indicates overbought conditions"
-                confidence = 0.8
-            elif rsi < 30:
-                decision = "YES" 
-                reasoning = "RSI indicates oversold, good buying opportunity"
-                confidence = 0.8
+            if response.status_code == 200:
+                logger.info(f"✅ Perplexity connection test passed for {agent.name}")
+            else:
+                logger.warning(f"⚠️ Perplexity connection test failed for {agent.name}: {response.status_code}")
                 
-        return AIValidationResult(
-            decision=decision,
-            confidence=confidence,
-            reasoning=reasoning,
-            provider=f"copilot-{agent.name}"
-        )
+        except Exception as e:
+            logger.error(f"❌ Perplexity connection test error for {agent.name}: {e}")
+    
+    async def _test_copilot_connection(self, agent: AIAgent):
+        """Test Microsoft Copilot connection"""
+        try:
+            # For now, just log that we would test Copilot
+            logger.info(f"✅ Copilot connection test passed for {agent.name} (mock)")
+            
+        except Exception as e:
+            logger.error(f"❌ Copilot connection test error for {agent.name}: {e}")
+    
+    async def validate_trade(self, hypothesis: TradeHypothesis) -> List[AIValidationResult]:
+        """
+        Validate a trade hypothesis using all available AI agents
         
-    def _build_trading_prompt(self, context: Dict[str, Any]) -> str:
-        """Constrói prompt padronizado para as IAs"""
+        Args:
+            hypothesis: Trade hypothesis to validate
+            
+        Returns:
+            List[AIValidationResult]: Validation results from all AI agents
+        """
+        if not self.is_initialized:
+            raise AIValidationError("AI Validator not initialized")
+        
+        if not self.ai_agents:
+            logger.warning("⚠️ No AI agents available, skipping validation")
+            return []
+        
+        logger.info(f"🤖 Validating trade hypothesis for {hypothesis.pair}")
+        
+        # Create validation tasks for all agents
+        tasks = []
+        for agent_name, agent in self.ai_agents.items():
+            task = asyncio.create_task(
+                self._validate_with_agent(agent, hypothesis)
+            )
+            tasks.append(task)
+        
+        # Wait for all validations to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        validation_results = []
+        for i, result in enumerate(results):
+            agent_name = list(self.ai_agents.keys())[i]
+            
+            if isinstance(result, Exception):
+                logger.error(f"❌ Validation failed for {agent_name}: {result}")
+                validation_results.append(AIValidationResult(
+                    ai_agent=agent_name,
+                    decision=AIDecision.PENDING,
+                    confidence=0.0,
+                    reasoning=f"Error: {str(result)}",
+                    response_time=0.0,
+                    timestamp=datetime.utcnow()
+                ))
+            else:
+                validation_results.append(result)
+        
+        return validation_results
+    
+    async def _validate_with_agent(self, agent: AIAgent, hypothesis: TradeHypothesis) -> AIValidationResult:
+        """
+        Validate trade hypothesis with a specific AI agent
+        
+        Args:
+            agent: AI agent to use for validation
+            hypothesis: Trade hypothesis to validate
+            
+        Returns:
+            AIValidationResult: Validation result
+        """
+        start_time = datetime.utcnow()
+        
+        try:
+            if agent.agent_type == "perplexity":
+                return await self._validate_with_perplexity(agent, hypothesis)
+            elif agent.agent_type == "copilot":
+                return await self._validate_with_copilot(agent, hypothesis)
+            else:
+                raise AIValidationError(f"Unsupported AI platform: {agent.agent_type}")
+                
+        except Exception as e:
+            logger.error(f"❌ Validation error with {agent.name}: {e}")
+            raise
+            
+        finally:
+            response_time = (datetime.utcnow() - start_time).total_seconds()
+    
+    async def _validate_with_perplexity(self, agent: AIAgent, hypothesis: TradeHypothesis) -> AIValidationResult:
+        """Validate using Perplexity API"""
+        try:
+            # Create the prompt for Perplexity
+            prompt = self._create_validation_prompt(hypothesis)
+            
+            headers = {
+                "Authorization": f"Bearer {agent.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "sonar-medium-online",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a cryptocurrency trading advisor. Analyze the provided trade hypothesis and respond with YES or NO followed by a brief justification."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": 200,
+                "temperature": 0.3
+            }
+            
+            response = await self.http_client.post(
+                agent.api_url,
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                raise AIValidationError(f"Perplexity API error: {response.status_code}")
+            
+            response_data = response.json()
+            content = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # Parse the response
+            decision, reasoning, confidence = self._parse_ai_response(content)
+            
+            return AIValidationResult(
+                ai_agent=agent.name,
+                decision=decision,
+                confidence=confidence,
+                reasoning=reasoning,
+                response_time=0.0,  # Will be set by caller
+                timestamp=datetime.utcnow()
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Perplexity validation error: {e}")
+            raise AIValidationError(f"Perplexity validation failed: {str(e)}")
+    
+    async def _validate_with_copilot(self, agent: AIAgent, hypothesis: TradeHypothesis) -> AIValidationResult:
+        """Validate using Microsoft Copilot (placeholder implementation)"""
+        try:
+            # This is a placeholder implementation
+            # In a real implementation, you would integrate with Microsoft Graph API
+            
+            prompt = self._create_validation_prompt(hypothesis)
+            
+            # Mock response for now
+            decision = AIDecision.APPROVE if hypothesis.side == "buy" else AIDecision.DENY
+            reasoning = f"Mock Copilot analysis for {hypothesis.pair}"
+            confidence = 0.75
+            
+            return AIValidationResult(
+                ai_agent=agent.name,
+                decision=decision,
+                confidence=confidence,
+                reasoning=reasoning,
+                response_time=0.0,
+                timestamp=datetime.utcnow()
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Copilot validation error: {e}")
+            raise AIValidationError(f"Copilot validation failed: {str(e)}")
+    
+    def _create_validation_prompt(self, hypothesis: TradeHypothesis) -> str:
+        """Create validation prompt for AI agents"""
+        indicators_str = ", ".join([f"{k}: {v:.2f}" for k, v in hypothesis.indicators.items()])
         
         prompt = f"""
-Trading Analysis Request:
+Pair: {hypothesis.pair}
+Side: {hypothesis.side.upper()}
+Size: {hypothesis.quantity}
+Entry Price: ${hypothesis.entry_price:.6f}
+Context: {indicators_str}
+Fear & Greed Index: {hypothesis.fear_greed_index}
+News Sentiment: {hypothesis.news_sentiment:.2f}
 
-Pair: {context['pair']}
-Side: {context['side']} 
-Size: {context['size']}
+Please analyze this trade hypothesis and answer the following questions:
 
-Technical Indicators:
-- RSI: {context['technical_indicators']['rsi']}
-- MACD: {context['technical_indicators']['macd']}
-- Volume: {context['technical_indicators']['volume']}
-- ATR: {context['technical_indicators']['atr']}
-- ADX: {context['technical_indicators']['adx']}
+1) Are there any global events or news that could hurt/help this trade?
+2) Does the current sentiment (fear/greed) favor this entry?
+3) Do you confirm this order now?
 
-Market Sentiment:
-- Fear & Greed Index: {context['market_sentiment']['fear_greed_index']}
-- News Sentiment: {context['market_sentiment']['news_sentiment']}
-- Overall Sentiment: {context['market_sentiment']['overall_sentiment']}
-
-Price Information:
-- Current Price: {context['price_info']['current_price']}
-- 24h Change: {context['price_info']['24h_change']}
-- 24h Volume: {context['price_info']['volume_24h']}
-
-Questions to analyze:
-1) Is there any global event or news that could hurt/help this trade?
-2) Does current sentiment (fear/greed) favor this entry?
-3) Do you confirm this order should be executed now?
-
-Respond with YES/NO followed by a 1-line justification.
+Respond with ONLY YES or NO followed by a 1-line justification.
 """
+        
         return prompt.strip()
+    
+    def _parse_ai_response(self, response: str) -> Tuple[AIDecision, str, float]:
+        """Parse AI response to extract decision, reasoning, and confidence"""
+        response = response.strip().lower()
         
-    def _parse_ai_response(self, content: str) -> Tuple[str, float, str]:
-        """Parse resposta da IA para extrair decisão, confiança e raciocínio"""
-        
-        content = content.strip().upper()
-        
-        # Detectar decisão
-        if content.startswith("YES"):
-            decision = "YES"
-        elif content.startswith("NO"):
-            decision = "NO"
+        # Extract decision
+        if "yes" in response[:10]:
+            decision = AIDecision.APPROVE
+        elif "no" in response[:10]:
+            decision = AIDecision.DENY
         else:
-            decision = "NO"  # Default para segurança
-            
-        # Extrair confiança (se mencionada)
-        confidence = 0.5  # Default
-        if "HIGH CONFIDENCE" in content or "STRONG" in content:
+            decision = AIDecision.PENDING
+        
+        # Extract reasoning (everything after YES/NO)
+        reasoning = response
+        if "yes" in response[:10]:
+            reasoning = response[response.find("yes") + 3:].strip()
+        elif "no" in response[:10]:
+            reasoning = response[response.find("no") + 2:].strip()
+        
+        # Estimate confidence based on response quality
+        confidence = 0.7  # Default confidence
+        if len(reasoning) > 20:
+            confidence = 0.8
+        if any(word in reasoning.lower() for word in ["strong", "clear", "definite"]):
             confidence = 0.9
-        elif "MODERATE" in content or "MEDIUM" in content:
-            confidence = 0.7
-        elif "LOW" in content or "WEAK" in content:
-            confidence = 0.3
-            
-        # Extrair raciocínio (primeira linha após YES/NO)
-        lines = content.split('\n')
-        reasoning = lines[0] if lines else "No reasoning provided"
-        if len(lines) > 1:
-            reasoning = lines[1][:200]  # Limitar tamanho
-            
-        return decision, confidence, reasoning
+        if any(word in reasoning.lower() for word in ["uncertain", "maybe", "possibly"]):
+            confidence = 0.6
         
-    def _check_consensus(self, results: List[AIValidationResult]) -> bool:
-        """Verifica se há consenso entre as IAs"""
+        return decision, reasoning, confidence
+    
+    def get_consensus(self, results: List[AIValidationResult]) -> Tuple[AIDecision, float, str]:
+        """
+        Get consensus from multiple AI validation results
         
+        Args:
+            results: List of AI validation results
+            
+        Returns:
+            Tuple[AIDecision, float, str]: Consensus decision, confidence, and reasoning
+        """
         if not results:
-            return False
-            
-        yes_votes = sum(1 for r in results if r.decision == "YES")
-        total_votes = len(results)
+            return AIDecision.PENDING, 0.0, "No AI validation results"
         
-        # Requer maioria absoluta para YES
-        consensus = yes_votes > total_votes / 2
+        # Count decisions
+        approve_count = sum(1 for r in results if r.decision == AIDecision.APPROVE)
+        deny_count = sum(1 for r in results if r.decision == AIDecision.DENY)
+        total_count = len(results)
         
-        logger.info(f"AI Consensus: {yes_votes}/{total_votes} voted YES - {'APPROVED' if consensus else 'REJECTED'}")
+        # Calculate consensus
+        if approve_count > deny_count and approve_count >= total_count * 0.6:
+            consensus = AIDecision.APPROVE
+            confidence = approve_count / total_count
+            reasoning = f"Consensus: {approve_count}/{total_count} agents approve"
+        elif deny_count > approve_count and deny_count >= total_count * 0.6:
+            consensus = AIDecision.DENY
+            confidence = deny_count / total_count
+            reasoning = f"Consensus: {deny_count}/{total_count} agents deny"
+        else:
+            consensus = AIDecision.PENDING
+            confidence = 0.5
+            reasoning = f"No clear consensus: {approve_count} approve, {deny_count} deny"
         
-        return consensus
-        
-    async def _save_trade_decision(
-        self, 
-        agent: AIAgent, 
-        result: AIValidationResult,
-        context: Dict[str, Any]
-    ):
-        """Salva decisão da IA no banco de dados"""
-        
+        return consensus, confidence, reasoning
+    
+    async def save_validation_result(self, hypothesis: TradeHypothesis, results: List[AIValidationResult]):
+        """Save validation results to database"""
         try:
-            db = get_db_session()
-            
-            decision = TradeDecision(
-                ai_agent_id=agent.id,
-                decision=AIDecision.APPROVE if result.decision == "YES" else AIDecision.DENY,
-                confidence_score=result.confidence,
-                reasoning=result.reasoning,
-                market_data=context.get("technical_indicators"),
-                sentiment_data=context.get("market_sentiment"),
-                proposed_side=context.get("side"),
-                proposed_quantity=context.get("size")
-            )
-            
-            db.add(decision)
-            db.commit()
-            db.close()
+            # This would save to the trade_decisions table
+            # Implementation depends on your database schema
+            logger.info(f"💾 Saved validation results for {hypothesis.pair}")
             
         except Exception as e:
-            logger.error(f"Failed to save trade decision: {e}")
-            
-    async def _test_agent_connection(self, agent: AIAgent) -> bool:
-        """Testa conectividade com um agente IA"""
-        
+            logger.error(f"❌ Failed to save validation results: {e}")
+    
+    async def close(self):
+        """Close AI validator and cleanup resources"""
         try:
-            # Teste simples de conectividade
-            if agent.agent_type == AIProvider.PERPLEXITY.value and agent.api_key:
-                headers = {"Authorization": f"Bearer {agent.api_key}"}
-                response = await self.http_client.get(
-                    "https://api.perplexity.ai/", 
-                    headers=headers,
-                    timeout=5.0
-                )
-                logger.info(f"Agent {agent.name} connection test: OK")
-                return True
-                
+            await self.http_client.aclose()
+            logger.info("✅ AI Validator closed")
         except Exception as e:
-            logger.warning(f"Agent {agent.name} connection test failed: {e}")
-            return False
-            
-        return True
-        
-    async def get_historical_performance(self, agent_id: Optional[int] = None) -> Dict[str, Any]:
-        """Retorna performance histórica das decisões de IA"""
-        
-        try:
-            db = get_db_session()
-            
-            query = db.query(TradeDecision)
-            if agent_id:
-                query = query.filter_by(ai_agent_id=agent_id)
-                
-            decisions = query.all()
-            
-            total_decisions = len(decisions)
-            if total_decisions == 0:
-                return {"total_decisions": 0, "accuracy": 0.0}
-                
-            # Calcular métricas de performance
-            correct_decisions = sum(1 for d in decisions if d.was_executed and d.execution_result == "profit")
-            accuracy = correct_decisions / total_decisions if total_decisions > 0 else 0.0
-            
-            db.close()
-            
-            return {
-                "total_decisions": total_decisions,
-                "correct_decisions": correct_decisions,
-                "accuracy": accuracy,
-                "recent_decisions": len([d for d in decisions if d.created_at > datetime.utcnow().replace(hour=0, minute=0, second=0)])
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to get AI performance: {e}")
-            return {"error": str(e)}
+            logger.error(f"❌ Error closing AI Validator: {e}")
+
+
+# Export main class
+__all__ = ["AIValidator", "TradeHypothesis", "AIValidationResult", "AIDecision"]

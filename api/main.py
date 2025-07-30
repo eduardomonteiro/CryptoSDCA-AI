@@ -25,6 +25,9 @@ try:
     from api.routes.manager import router as manager_router  # CORREÇÃO: import direto do router
     from api.routes.trading import router as trading_router
     from api.routes.websocket import router as websocket_router
+    from api.routes.admin import router as admin_router
+    from api.routes.history import router as history_router
+    from api.routes.settings import router as settings_router
     print("✅ All routers imported successfully")
 except ImportError as e:
     print(f"❌ Error importing routers: {e}")
@@ -35,6 +38,9 @@ except ImportError as e:
     manager_router = APIRouter()
     trading_router = APIRouter()
     websocket_router = APIRouter()
+    admin_router = APIRouter()
+    history_router = APIRouter()
+    settings_router = APIRouter()
 
 # Create FastAPI application
 app = FastAPI(
@@ -96,12 +102,18 @@ app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(manager_router, prefix="/api/manager", tags=["Manager"])  # CORREÇÃO: removido .router
 app.include_router(trading_router, prefix="/api/trading", tags=["Trading"])
 app.include_router(websocket_router, prefix="", tags=["WebSocket"])  # No prefix for WebSocket
+app.include_router(admin_router, prefix="/admin", tags=["Admin"])
+app.include_router(history_router, prefix="/history", tags=["History"])
+app.include_router(settings_router, prefix="/settings", tags=["Settings"])
 
 print("✅ All routers included successfully:")
 print("   - /auth/* (Authentication)")
 print("   - /api/* (Dashboard)")
 print("   - /api/manager/* (Manager)")
 print("   - /api/trading/* (Trading)")
+print("   - /admin/* (Admin)")
+print("   - /history/* (History)")
+print("   - /settings/* (Settings)")
 print("   - /ws (WebSocket)")
 
 # Root route - Main dashboard

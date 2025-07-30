@@ -1,62 +1,56 @@
 # Core FastAPI e framework web
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-jinja2==3.1.2
-starlette==0.27.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+jinja2>=3.1.0
+starlette>=0.27.0
 
 # Pydantic v2 com settings separado
-pydantic==2.5.0
-pydantic-settings==2.1.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
 # Dependências críticas de segurança
-itsdangerous==2.1.2
+itsdangerous>=2.1.0
 
 # Banco de dados e ORM
-sqlalchemy==2.0.23
-alembic==1.12.1
+sqlalchemy>=2.0.0
+alembic>=1.12.0
 
 # Autenticação e segurança
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
+bcrypt>=4.0.0
 
 # Processamento de dados
-pandas==2.1.3
-numpy==1.26.2
+numpy>=1.24.0
 
 # Conectividade de exchanges cripto
-ccxt==4.1.28
+ccxt>=4.1.0
 
 # Requisições HTTP e WebSocket
-httpx==0.25.2
-websockets==12.0
-aiohttp==3.9.1
+httpx>=0.25.0
+websockets>=12.0
+aiohttp>=3.9.0
 
 # Configuração e ambiente
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
 
 # Logging e monitoramento
-loguru==0.7.2
-prometheus-client==0.19.0
+loguru>=0.7.0
+prometheus-client>=0.19.0
 
 # Agendamento de tarefas
-apscheduler==3.10.4
+apscheduler>=3.10.0
 
 # Testes e desenvolvimento
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-
-# Qualidade de código
-mypy==1.7.1
-black==23.11.0
-isort==5.12.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
 
 # Parsing de feeds RSS para notícias
-feedparser==6.0.10
-beautifulsoup4==4.12.2
+feedparser>=6.0.0
+beautifulsoup4>=4.12.0
 
 # Utilitários adicionais
-python-dateutil==2.8.2
-pytz==2023.3
+python-dateutil>=2.8.0
+pytz>=2023.0

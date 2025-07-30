@@ -47,11 +47,12 @@ from api.routes import admin, dashboard, history, settings as api_settings, trad
 from api.routes.auth import router as auth_router, get_current_user
 
 # Core bot components
-from core.ai_validator import AIValidator
-from core.dca_engine import DCAEngine
-from core.exchange_manager import ExchangeManager
-from core.risk_manager import RiskManager
-from core.sentiment_analyzer import SentimentAnalyzer
+from src.core.ai_validator import AIValidator
+from src.core.dca_engine import DCAEngine
+from src.core.exchange_manager import ExchangeManager
+from src.core.risk_manager import RiskManager
+from src.core.sentiment_analyzer import SentimentAnalyzer
+from src.core.indicators import TechnicalIndicators
 
 # --------------------------------------------------------------------------- #
 # Settings & globals
@@ -72,14 +73,18 @@ risk_manager:    Optional[RiskManager]    = None
 # --------------------------------------------------------------------------- #
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    global exchange_manager, ai_validator, dca_engine, sentiment_analyzer, risk_manager
-
-    logger.info("🚀 Booting CryptoSDCA-AI …")
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
     try:
-        await init_database()
+        logger.info("🚀 Booting CryptoSDCA-AI …")
+        
+        # Initialize database
+        if not await init_database():
+            logger.error("❌ Database initialization failed")
+            raise RuntimeError("Database initialization failed")
         logger.info("✅  DB ready")
 
+        # Initialize core components
         exchange_manager = ExchangeManager()
         await exchange_manager.initialize()
 
@@ -89,7 +94,7 @@ async def lifespan(_: FastAPI):
         sentiment_analyzer = SentimentAnalyzer()
         await sentiment_analyzer.initialize()
 
-        risk_manager = RiskManager()
+        risk_manager = RiskManager(exchange_manager=exchange_manager)
         await risk_manager.initialize()
 
         dca_engine = DCAEngine(
@@ -99,6 +104,23 @@ async def lifespan(_: FastAPI):
             risk_manager=risk_manager,
         )
         await dca_engine.initialize()
+
+        # Initialize global instances for trading API
+        from api.routes.trading import (
+            ai_validator as trading_ai_validator,
+            indicators as trading_indicators,
+            sentiment_analyzer as trading_sentiment_analyzer,
+            risk_manager as trading_risk_manager,
+            exchange_manager as trading_exchange_manager
+        )
+        
+        # Set global instances
+        trading_ai_validator = ai_validator
+        trading_indicators = TechnicalIndicators()
+        await trading_indicators.initialize()
+        trading_sentiment_analyzer = sentiment_analyzer
+        trading_risk_manager = risk_manager
+        trading_exchange_manager = exchange_manager
 
         if not settings.test_mode:
             asyncio.create_task(dca_engine.start_trading_loop())
@@ -122,7 +144,7 @@ async def lifespan(_: FastAPI):
 # --------------------------------------------------------------------------- #
 
 app = FastAPI(
-    title=settings.name,
+    title=settings.app_name,
     description="Advanced crypto trading bot with AI validation and DCA strategy",
     version=settings.version,
     debug=settings.debug,
@@ -195,7 +217,7 @@ async def root(request: Request):
 async def dashboard_page(request: Request, user: User = Depends(get_current_user)):
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "app_name": settings.name, "version": settings.version},
+        {"request": request, "user": user, "app_name": settings.app_name, "version": settings.version},
     )
 
 
@@ -211,7 +233,7 @@ async def health():
 @app.get("/info")
 async def info():
     return {
-        "name": settings.name,
+        "name": settings.app_name,
         "version": settings.version,
         "debug": settings.debug,
         "paper_trading": settings.paper_trading,
@@ -229,7 +251,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(history.router,  prefix="/api/history",  tags=["history"])
 app.include_router(api_settings.router, prefix="/api/settings", tags=["settings"])
 
-logger.info("🛣  Routers mounted: " + ", ".join([r.prefix or "/" for r in app.router.routes]))
+logger.info("🛣  Routers mounted successfully")
 
 
 # --------------------------------------------------------------------------- #

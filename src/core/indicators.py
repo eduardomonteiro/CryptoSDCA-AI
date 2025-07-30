@@ -1,785 +1,697 @@
 """
-src/core/indicators.py
-Technical Indicators Engine for CryptoSDCA-AI
-
-Implements all technical indicators used by the trading bot:
-- RSI (Relative Strength Index)
-- MACD (Moving Average Convergence Divergence)
-- ATR (Average True Range)
-- Bollinger Bands
-- Moving Averages (SMA, EMA)
-- ADX (Average Directional Index)
-- Stochastic Oscillator
-- OBV (On-Balance Volume)
-- Fibonacci Retracements
+src/core/indicators.py - Technical Indicators for CryptoSDCA-AI
+Implements various technical indicators for market analysis
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Tuple, Optional, Any
+import asyncio
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from enum import Enum
 
+import numpy as np
 from loguru import logger
+
 from src.config import get_settings
+from src.exceptions import IndicatorError
+from src.core.exchange_manager import MarketData
+
+
+class IndicatorType(Enum):
+    """Technical indicator types"""
+    RSI = "rsi"
+    MACD = "macd"
+    BOLLINGER_BANDS = "bollinger_bands"
+    MOVING_AVERAGE = "moving_average"
+    VOLUME = "volume"
+    STOCHASTIC = "stochastic"
+    ADX = "adx"
+    ATR = "atr"
 
 
 @dataclass
 class IndicatorResult:
-    """Resultado de um indicador técnico"""
+    """Result of technical indicator calculation"""
+    indicator_type: IndicatorType
     value: float
-    signal: str  # "BUY", "SELL", "NEUTRAL"
-    strength: float  # 0.0 to 1.0
+    signal: str  # "buy", "sell", "neutral"
+    confidence: float
     timestamp: datetime
-    details: Dict[str, Any]
-
-
-@dataclass
-class MarketCondition:
-    """Condições de mercado baseadas em múltiplos indicadores"""
-    trend_direction: str  # "BULLISH", "BEARISH", "SIDEWAYS"
-    trend_strength: float  # 0.0 to 1.0
-    volatility: str  # "LOW", "MEDIUM", "HIGH"
-    momentum: str  # "STRONG", "WEAK", "NEUTRAL"
-    overall_signal: str  # "BUY", "SELL", "HOLD"
-    confidence: float  # 0.0 to 1.0
+    metadata: Dict[str, Any]
 
 
 class TechnicalIndicators:
-    """
-    Engine para cálculo de indicadores técnicos
-    Processa dados OHLCV e retorna sinais de trading
-    """
+    """Technical indicators calculator and analyzer"""
     
     def __init__(self):
         self.settings = get_settings()
-        self.config = self._get_indicator_config()
+        self.data_cache: Dict[str, List[MarketData]] = {}
+        self.indicators_cache: Dict[str, Dict[str, IndicatorResult]] = {}
+        self.cache_duration = timedelta(minutes=5)
         
-    def _get_indicator_config(self) -> Dict[str, Dict]:
-        """Get indicator configuration from settings"""
-        return {
-            "rsi": {
-                "period": getattr(self.settings, 'rsi_period', 14),
-                "oversold": getattr(self.settings, 'rsi_oversold', 30),
-                "overbought": getattr(self.settings, 'rsi_overbought', 70)
-            },
-            "macd": {
-                "fast": getattr(self.settings, 'macd_fast_period', 12),
-                "slow": getattr(self.settings, 'macd_slow_period', 26),
-                "signal": getattr(self.settings, 'macd_signal_period', 9)
-            },
-            "atr": {
-                "period": getattr(self.settings, 'atr_period', 14),
-                "multiplier": getattr(self.settings, 'atr_stop_multiplier', 2.0)
-            },
-            "bollinger": {
-                "period": 20,
-                "std_dev": 2.0
-            },
-            "adx": {
-                "period": 14,
-                "strong_trend": 25,
-                "weak_trend": 20
-            },
-            "stochastic": {
-                "k_period": 14,
-                "d_period": 3,
-                "overbought": 80,
-                "oversold": 20
-            }
-        }
+        # Indicator parameters
+        self.rsi_period = 14
+        self.macd_fast = 12
+        self.macd_slow = 26
+        self.macd_signal = 9
+        self.bb_period = 20
+        self.bb_std = 2
+        self.ma_periods = [20, 50, 200]
+        self.stoch_k = 14
+        self.stoch_d = 3
+        self.adx_period = 14
+        self.atr_period = 14
         
-    def calculate_rsi(
-        self, 
-        prices: List[float], 
-        period: Optional[int] = None
-    ) -> IndicatorResult:
-        """
-        Calcula Relative Strength Index (RSI)
-        
-        Args:
-            prices: Lista de preços de fechamento
-            period: Período do RSI (default: configuração)
-        
-        Returns:
-            IndicatorResult com valor RSI e sinal
-        """
-        if period is None:
-            period = self.config["rsi"]["period"]
-            
-        if len(prices) < period + 1:
-            return IndicatorResult(50.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Converter para pandas Series
-        price_series = pd.Series(prices)
-        
-        # Calcular mudanças de preço
-        delta = price_series.diff()
-        
-        # Separar ganhos e perdas
-        gains = delta.where(delta > 0, 0.0)
-        losses = -delta.where(delta < 0, 0.0)
-        
-        # Calcular médias móveis exponenciais
-        avg_gains = gains.rolling(window=period, min_periods=period).mean()
-        avg_losses = losses.rolling(window=period, min_periods=period).mean()
-        
-        # Calcular RS e RSI
-        rs = avg_gains / avg_losses
-        rsi = 100 - (100 / (1 + rs))
-        
-        current_rsi = rsi.iloc[-1]
-        
-        # Determinar sinal
-        oversold = self.config["rsi"]["oversold"]
-        overbought = self.config["rsi"]["overbought"]
-        
-        if current_rsi < oversold:
-            signal = "BUY"
-            strength = (oversold - current_rsi) / oversold
-        elif current_rsi > overbought:
-            signal = "SELL"
-            strength = (current_rsi - overbought) / (100 - overbought)
-        else:
-            signal = "NEUTRAL"
-            strength = 0.5
-            
-        return IndicatorResult(
-            value=current_rsi,
-            signal=signal,
-            strength=min(strength, 1.0),
-            timestamp=datetime.utcnow(),
-            details={
-                "oversold_level": oversold,
-                "overbought_level": overbought,
-                "period": period
-            }
-        )
-        
-    def calculate_macd(
-        self, 
-        prices: List[float],
-        fast_period: Optional[int] = None,
-        slow_period: Optional[int] = None,
-        signal_period: Optional[int] = None
-    ) -> IndicatorResult:
-        """
-        Calcula MACD (Moving Average Convergence Divergence)
-        
-        Returns:
-            IndicatorResult com MACD line, signal line e histograma
-        """
-        if fast_period is None:
-            fast_period = self.config["macd"]["fast"]
-        if slow_period is None:
-            slow_period = self.config["macd"]["slow"]
-        if signal_period is None:
-            signal_period = self.config["macd"]["signal"]
-            
-        if len(prices) < slow_period + signal_period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        price_series = pd.Series(prices)
-        
-        # Calcular EMAs
-        ema_fast = price_series.ewm(span=fast_period).mean()
-        ema_slow = price_series.ewm(span=slow_period).mean()
-        
-        # MACD line
-        macd_line = ema_fast - ema_slow
-        
-        # Signal line
-        signal_line = macd_line.ewm(span=signal_period).mean()
-        
-        # Histograma
-        histogram = macd_line - signal_line
-        
-        current_macd = macd_line.iloc[-1]
-        current_signal = signal_line.iloc[-1]
-        current_histogram = histogram.iloc[-1]
-        
-        # Determinar sinal baseado no cruzamento
-        prev_histogram = histogram.iloc[-2] if len(histogram) > 1 else 0
-        
-        if current_histogram > 0 and prev_histogram <= 0:
-            signal = "BUY"
-            strength = min(abs(current_histogram) / abs(current_macd), 1.0)
-        elif current_histogram < 0 and prev_histogram >= 0:
-            signal = "SELL"
-            strength = min(abs(current_histogram) / abs(current_macd), 1.0)
-        else:
-            signal = "NEUTRAL"
-            strength = 0.5
-            
-        return IndicatorResult(
-            value=current_macd,
-            signal=signal,
-            strength=strength,
-            timestamp=datetime.utcnow(),
-            details={
-                "macd_line": current_macd,
-                "signal_line": current_signal,
-                "histogram": current_histogram,
-                "fast_period": fast_period,
-                "slow_period": slow_period,
-                "signal_period": signal_period
-            }
-        )
-        
-    def calculate_atr(
-        self, 
-        highs: List[float],
-        lows: List[float],
-        closes: List[float],
-        period: Optional[int] = None
-    ) -> IndicatorResult:
-        """
-        Calcula Average True Range (ATR) para medir volatilidade
-        
-        Returns:
-            IndicatorResult com valor ATR e nível de volatilidade
-        """
-        if period is None:
-            period = self.config["atr"]["period"]
-            
-        if len(highs) < period or len(lows) < period or len(closes) < period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Calcular True Range
-        true_ranges = []
-        for i in range(1, len(closes)):
-            tr1 = highs[i] - lows[i]
-            tr2 = abs(highs[i] - closes[i-1])
-            tr3 = abs(lows[i] - closes[i-1])
-            true_ranges.append(max(tr1, tr2, tr3))
-        
-        # Calcular ATR usando média móvel simples
-        if len(true_ranges) < period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        atr_values = []
-        for i in range(period-1, len(true_ranges)):
-            atr = sum(true_ranges[i-period+1:i+1]) / period
-            atr_values.append(atr)
-        
-        current_atr = atr_values[-1] if atr_values else 0.0
-        current_price = closes[-1]
-        
-        # Determinar nível de volatilidade
-        atr_percent = (current_atr / current_price) * 100
-        
-        if atr_percent < 1.0:
-            volatility = "LOW"
-            signal = "NEUTRAL"
-            strength = 0.3
-        elif atr_percent < 3.0:
-            volatility = "MEDIUM"
-            signal = "NEUTRAL" 
-            strength = 0.6
-        else:
-            volatility = "HIGH"
-            signal = "NEUTRAL"
-            strength = 0.9
-            
-        return IndicatorResult(
-            value=current_atr,
-            signal=signal,
-            strength=strength,
-            timestamp=datetime.utcnow(),
-            details={
-                "atr_percent": atr_percent,
-                "volatility": volatility,
-                "period": period,
-                "stop_loss_distance": current_atr * self.config["atr"]["multiplier"]
-            }
-        )
-        
-    def calculate_bollinger_bands(
-        self,
-        prices: List[float],
-        period: Optional[int] = None,
-        std_dev: Optional[float] = None
-    ) -> IndicatorResult:
-        """
-        Calcula Bollinger Bands
-        
-        Returns:
-            IndicatorResult com bandas superiores, inferiores e sinal
-        """
-        if period is None:
-            period = self.config["bollinger"]["period"]
-        if std_dev is None:
-            std_dev = self.config["bollinger"]["std_dev"]
-            
-        if len(prices) < period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        price_series = pd.Series(prices)
-        
-        # Calcular SMA e desvio padrão
-        sma = price_series.rolling(window=period).mean()
-        std = price_series.rolling(window=period).std()
-        
-        # Calcular bandas
-        upper_band = sma + (std * std_dev)
-        lower_band = sma - (std * std_dev)
-        
-        current_price = prices[-1]
-        current_sma = sma.iloc[-1]
-        current_upper = upper_band.iloc[-1]
-        current_lower = lower_band.iloc[-1]
-        
-        # Determinar sinal baseado na posição do preço
-        band_width = current_upper - current_lower
-        price_position = (current_price - current_lower) / band_width
-        
-        if current_price <= current_lower:
-            signal = "BUY"
-            strength = 1.0 - price_position
-        elif current_price >= current_upper:
-            signal = "SELL"
-            strength = price_position
-        else:
-            signal = "NEUTRAL"
-            strength = 0.5
-            
-        return IndicatorResult(
-            value=current_sma,
-            signal=signal,
-            strength=min(max(strength, 0.0), 1.0),
-            timestamp=datetime.utcnow(),
-            details={
-                "upper_band": current_upper,
-                "lower_band": current_lower,
-                "price_position": price_position,
-                "band_width": band_width,
-                "squeeze": band_width < (current_sma * 0.05)  # Band squeeze indicator
-            }
-        )
-        
-    def calculate_moving_averages(
-        self,
-        prices: List[float],
-        short_period: int = 50,
-        long_period: int = 200
-    ) -> IndicatorResult:
-        """
-        Calcula médias móveis simples e exponenciais
-        
-        Returns:
-            IndicatorResult com cruzamento de médias e tendência
-        """
-        if len(prices) < long_period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        price_series = pd.Series(prices)
-        
-        # SMAs
-        sma_short = price_series.rolling(window=short_period).mean()
-        sma_long = price_series.rolling(window=long_period).mean()
-        
-        # EMAs
-        ema_short = price_series.ewm(span=short_period).mean()
-        ema_long = price_series.ewm(span=long_period).mean()
-        
-        current_sma_short = sma_short.iloc[-1]
-        current_sma_long = sma_long.iloc[-1]
-        current_ema_short = ema_short.iloc[-1]
-        current_ema_long = ema_long.iloc[-1]
-        current_price = prices[-1]
-        
-        # Determinar tendência e sinal
-        if current_sma_short > current_sma_long and current_ema_short > current_ema_long:
-            if current_price > current_sma_short:
-                signal = "BUY"
-                strength = 0.8
-            else:
-                signal = "NEUTRAL"
-                strength = 0.6
-        elif current_sma_short < current_sma_long and current_ema_short < current_ema_long:
-            if current_price < current_sma_short:
-                signal = "SELL"
-                strength = 0.8
-            else:
-                signal = "NEUTRAL"
-                strength = 0.6
-        else:
-            signal = "NEUTRAL"
-            strength = 0.4
-            
-        return IndicatorResult(
-            value=current_sma_short,
-            signal=signal,
-            strength=strength,
-            timestamp=datetime.utcnow(),
-            details={
-                "sma_short": current_sma_short,
-                "sma_long": current_sma_long,
-                "ema_short": current_ema_short,
-                "ema_long": current_ema_long,
-                "golden_cross": current_sma_short > current_sma_long,
-                "death_cross": current_sma_short < current_sma_long
-            }
-        )
-        
-    def calculate_adx(
-        self,
-        highs: List[float],
-        lows: List[float],
-        closes: List[float],
-        period: Optional[int] = None
-    ) -> IndicatorResult:
-        """
-        Calcula Average Directional Index (ADX)
-        
-        Returns:
-            IndicatorResult com força da tendência
-        """
-        if period is None:
-            period = self.config["adx"]["period"]
-            
-        if len(highs) < period * 2 or len(lows) < period * 2 or len(closes) < period * 2:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Calcular True Range e Directional Movement
-        tr_list = []
-        dm_plus_list = []
-        dm_minus_list = []
-        
-        for i in range(1, len(closes)):
-            # True Range
-            tr1 = highs[i] - lows[i]
-            tr2 = abs(highs[i] - closes[i-1])
-            tr3 = abs(lows[i] - closes[i-1])
-            tr = max(tr1, tr2, tr3)
-            tr_list.append(tr)
-            
-            # Directional Movement
-            dm_plus = max(highs[i] - highs[i-1], 0) if highs[i] - highs[i-1] > lows[i-1] - lows[i] else 0
-            dm_minus = max(lows[i-1] - lows[i], 0) if lows[i-1] - lows[i] > highs[i] - highs[i-1] else 0
-            
-            dm_plus_list.append(dm_plus)
-            dm_minus_list.append(dm_minus)
-        
-        if len(tr_list) < period:
-            return IndicatorResult(0.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Calcular smoothed values
-        tr_smooth = sum(tr_list[-period:]) / period
-        dm_plus_smooth = sum(dm_plus_list[-period:]) / period
-        dm_minus_smooth = sum(dm_minus_list[-period:]) / period
-        
-        # Calcular DI+ e DI-
-        di_plus = (dm_plus_smooth / tr_smooth) * 100
-        di_minus = (dm_minus_smooth / tr_smooth) * 100
-        
-        # Calcular DX e ADX
-        dx = abs(di_plus - di_minus) / (di_plus + di_minus) * 100 if (di_plus + di_minus) != 0 else 0
-        
-        # Para simplificar, usaremos o DX como ADX (normalmente ADX é uma média móvel do DX)
-        adx_value = dx
-        
-        # Determinar força da tendência
-        strong_trend = self.config["adx"]["strong_trend"]
-        weak_trend = self.config["adx"]["weak_trend"]
-        
-        if adx_value > strong_trend:
-            if di_plus > di_minus:
-                signal = "BUY"
-                strength = 0.8
-            else:
-                signal = "SELL"
-                strength = 0.8
-        elif adx_value > weak_trend:
-            signal = "NEUTRAL"
-            strength = 0.5
-        else:
-            signal = "NEUTRAL"
-            strength = 0.2
-            
-        return IndicatorResult(
-            value=adx_value,
-            signal=signal,
-            strength=strength,
-            timestamp=datetime.utcnow(),
-            details={
-                "di_plus": di_plus,
-                "di_minus": di_minus,
-                "trend_strength": "STRONG" if adx_value > strong_trend else "WEAK" if adx_value > weak_trend else "NO_TREND",
-                "period": period
-            }
-        )
-        
-    def calculate_stochastic(
-        self,
-        highs: List[float],
-        lows: List[float],
-        closes: List[float],
-        k_period: Optional[int] = None,
-        d_period: Optional[int] = None
-    ) -> IndicatorResult:
-        """
-        Calcula Stochastic Oscillator
-        
-        Returns:
-            IndicatorResult com %K, %D e sinal
-        """
-        if k_period is None:
-            k_period = self.config["stochastic"]["k_period"]
-        if d_period is None:
-            d_period = self.config["stochastic"]["d_period"]
-            
-        if len(highs) < k_period or len(lows) < k_period or len(closes) < k_period:
-            return IndicatorResult(50.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Calcular %K
-        k_values = []
-        for i in range(k_period-1, len(closes)):
-            high_max = max(highs[i-k_period+1:i+1])
-            low_min = min(lows[i-k_period+1:i+1])
-            current_close = closes[i]
-            
-            if high_max == low_min:
-                k_percent = 50.0
-            else:
-                k_percent = ((current_close - low_min) / (high_max - low_min)) * 100
-                
-            k_values.append(k_percent)
-        
-        if len(k_values) < d_period:
-            return IndicatorResult(50.0, "NEUTRAL", 0.0, datetime.utcnow(), {})
-            
-        # Calcular %D (média móvel simples do %K)
-        d_values = []
-        for i in range(d_period-1, len(k_values)):
-            d_percent = sum(k_values[i-d_period+1:i+1]) / d_period
-            d_values.append(d_percent)
-        
-        current_k = k_values[-1]
-        current_d = d_values[-1] if d_values else current_k
-        
-        # Determinar sinal
-        overbought = self.config["stochastic"]["overbought"]
-        oversold = self.config["stochastic"]["oversold"]
-        
-        if current_k < oversold and current_d < oversold:
-            signal = "BUY"
-            strength = (oversold - current_k) / oversold
-        elif current_k > overbought and current_d > overbought:
-            signal = "SELL"
-            strength = (current_k - overbought) / (100 - overbought)
-        else:
-            signal = "NEUTRAL"
-            strength = 0.5
-            
-        return IndicatorResult(
-            value=current_k,
-            signal=signal,
-            strength=min(strength, 1.0),
-            timestamp=datetime.utcnow(),
-            details={
-                "k_percent": current_k,
-                "d_percent": current_d,
-                "overbought_level": overbought,
-                "oversold_level": oversold,
-                "k_period": k_period,
-                "d_period": d_period
-            }
-        )
-        
-    def calculate_fibonacci_retracements(
-        self,
-        high_price: float,
-        low_price: float,
-        trend_direction: str = "UP"
-    ) -> Dict[str, float]:
-        """
-        Calcula níveis de retração de Fibonacci
-        
-        Args:
-            high_price: Preço máximo do movimento
-            low_price: Preço mínimo do movimento
-            trend_direction: "UP" ou "DOWN"
-        
-        Returns:
-            Dict com níveis de Fibonacci
-        """
-        price_range = high_price - low_price
-        
-        fib_levels = {
-            "0.0": high_price if trend_direction == "UP" else low_price,
-            "23.6": None,
-            "38.2": None,
-            "50.0": None,
-            "61.8": None,
-            "78.6": None,
-            "100.0": low_price if trend_direction == "UP" else high_price
-        }
-        
-        if trend_direction == "UP":
-            # Retração de tendência de alta
-            fib_levels["23.6"] = high_price - (price_range * 0.236)
-            fib_levels["38.2"] = high_price - (price_range * 0.382)
-            fib_levels["50.0"] = high_price - (price_range * 0.500)
-            fib_levels["61.8"] = high_price - (price_range * 0.618)
-            fib_levels["78.6"] = high_price - (price_range * 0.786)
-        else:
-            # Retração de tendência de baixa
-            fib_levels["23.6"] = low_price + (price_range * 0.236)
-            fib_levels["38.2"] = low_price + (price_range * 0.382)
-            fib_levels["50.0"] = low_price + (price_range * 0.500)
-            fib_levels["61.8"] = low_price + (price_range * 0.618)
-            fib_levels["78.6"] = low_price + (price_range * 0.786)
-            
-        return fib_levels
-        
-    def analyze_market_conditions(
-        self,
-        highs: List[float],
-        lows: List[float],
-        closes: List[float],
-        volumes: Optional[List[float]] = None
-    ) -> MarketCondition:
-        """
-        Analisa condições gerais do mercado usando múltiplos indicadores
-        
-        Returns:
-            MarketCondition com análise consolidada
-        """
+    async def initialize(self):
+        """Initialize technical indicators"""
         try:
-            # Calcular indicadores principais
-            rsi = self.calculate_rsi(closes)
-            macd = self.calculate_macd(closes)
-            atr = self.calculate_atr(highs, lows, closes)
-            bollinger = self.calculate_bollinger_bands(closes)
-            ma = self.calculate_moving_averages(closes)
-            adx = self.calculate_adx(highs, lows, closes)
-            stoch = self.calculate_stochastic(highs, lows, closes)
+            logger.info("🔄 Initializing Technical Indicators...")
             
-            # Analisar tendência
-            trend_indicators = [ma.signal, adx.signal]
-            bullish_count = trend_indicators.count("BUY")
-            bearish_count = trend_indicators.count("SELL")
+            # Clear caches
+            self.data_cache.clear()
+            self.indicators_cache.clear()
             
-            if bullish_count > bearish_count:
-                trend_direction = "BULLISH"
-                trend_strength = (bullish_count / len(trend_indicators))
-            elif bearish_count > bullish_count:
-                trend_direction = "BEARISH"
-                trend_strength = (bearish_count / len(trend_indicators))
-            else:
-                trend_direction = "SIDEWAYS"
-                trend_strength = 0.5
+            logger.info("✅ Technical Indicators initialized")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Technical Indicators: {e}")
+            raise IndicatorError(f"Technical Indicators initialization failed: {str(e)}")
+    
+    async def update_data(self, pair: str, market_data: MarketData):
+        """Update market data for a pair"""
+        try:
+            if pair not in self.data_cache:
+                self.data_cache[pair] = []
+            
+            # Add new data point
+            self.data_cache[pair].append(market_data)
+            
+            # Keep only last 1000 data points to prevent memory issues
+            if len(self.data_cache[pair]) > 1000:
+                self.data_cache[pair] = self.data_cache[pair][-1000:]
+            
+            # Clear indicators cache for this pair
+            if pair in self.indicators_cache:
+                del self.indicators_cache[pair]
                 
-            # Analisar volatilidade
-            atr_details = atr.details
-            volatility = atr_details.get("volatility", "MEDIUM")
+        except Exception as e:
+            logger.error(f"❌ Data update error for {pair}: {e}")
+    
+    async def get_indicators(self, pair: str) -> Dict[str, float]:
+        """Get all technical indicators for a pair"""
+        try:
+            # Check cache first
+            if pair in self.indicators_cache:
+                cache_time = self.indicators_cache[pair].get("_cache_time", datetime.min)
+                if datetime.utcnow() - cache_time < self.cache_duration:
+                    return {k: v.value for k, v in self.indicators_cache[pair].items() if k != "_cache_time"}
             
-            # Analisar momentum
-            momentum_indicators = [rsi.signal, macd.signal, stoch.signal]
-            momentum_bullish = momentum_indicators.count("BUY")
-            momentum_bearish = momentum_indicators.count("SELL")
+            # Calculate indicators
+            indicators = {}
             
-            if momentum_bullish > momentum_bearish:
-                momentum = "STRONG"
-            elif momentum_bearish > momentum_bullish:
-                momentum = "WEAK"
-            else:
-                momentum = "NEUTRAL"
-                
-            # Determinar sinal geral
-            all_signals = [rsi.signal, macd.signal, bollinger.signal, ma.signal, stoch.signal]
-            buy_signals = all_signals.count("BUY")
-            sell_signals = all_signals.count("SELL")
+            # Get price data
+            prices = self._get_price_data(pair)
+            if not prices or len(prices) < 50:
+                return {}
             
-            if buy_signals >= 3:
-                overall_signal = "BUY"
-                confidence = buy_signals / len(all_signals)
-            elif sell_signals >= 3:
-                overall_signal = "SELL"
-                confidence = sell_signals / len(all_signals)
-            else:
-                overall_signal = "HOLD"
-                confidence = 0.5
-                
-            return MarketCondition(
-                trend_direction=trend_direction,
-                trend_strength=trend_strength,
-                volatility=volatility,
-                momentum=momentum,
-                overall_signal=overall_signal,
-                confidence=confidence
+            # Calculate RSI
+            rsi_result = await self._calculate_rsi(prices)
+            if rsi_result:
+                indicators["rsi"] = rsi_result.value
+                indicators["rsi_signal"] = 1 if rsi_result.signal == "buy" else -1 if rsi_result.signal == "sell" else 0
+            
+            # Calculate MACD
+            macd_result = await self._calculate_macd(prices)
+            if macd_result:
+                indicators["macd"] = macd_result.value
+                indicators["macd_signal"] = macd_result.metadata.get("signal_line", 0)
+                indicators["macd_histogram"] = macd_result.metadata.get("histogram", 0)
+            
+            # Calculate Bollinger Bands
+            bb_result = await self._calculate_bollinger_bands(prices)
+            if bb_result:
+                indicators["bb_upper"] = bb_result.metadata.get("upper", 0)
+                indicators["bb_middle"] = bb_result.metadata.get("middle", 0)
+                indicators["bb_lower"] = bb_result.metadata.get("lower", 0)
+                indicators["bb_width"] = bb_result.metadata.get("width", 0)
+            
+            # Calculate Moving Averages
+            ma_results = await self._calculate_moving_averages(prices)
+            for period, result in ma_results.items():
+                indicators[f"ma_{period}"] = result.value
+            
+            # Calculate Volume indicators
+            volume_result = await self._calculate_volume_indicators(pair)
+            if volume_result:
+                indicators["volume"] = volume_result.value
+                indicators["avg_volume"] = volume_result.metadata.get("avg_volume", 0)
+                indicators["volume_ratio"] = volume_result.metadata.get("volume_ratio", 0)
+            
+            # Calculate Stochastic
+            stoch_result = await self._calculate_stochastic(prices)
+            if stoch_result:
+                indicators["stoch_k"] = stoch_result.value
+                indicators["stoch_d"] = stoch_result.metadata.get("stoch_d", 0)
+            
+            # Calculate ADX
+            adx_result = await self._calculate_adx(prices)
+            if adx_result:
+                indicators["adx"] = adx_result.value
+                indicators["di_plus"] = adx_result.metadata.get("di_plus", 0)
+                indicators["di_minus"] = adx_result.metadata.get("di_minus", 0)
+            
+            # Calculate ATR
+            atr_result = await self._calculate_atr(prices)
+            if atr_result:
+                indicators["atr"] = atr_result.value
+            
+            # Add current price
+            if prices:
+                indicators["price"] = prices[-1]
+            
+            # Cache results
+            self.indicators_cache[pair] = {
+                "_cache_time": datetime.utcnow(),
+                **{k: IndicatorResult(
+                    indicator_type=IndicatorType.RSI if "rsi" in k else IndicatorType.MACD if "macd" in k else IndicatorType.BOLLINGER_BANDS if "bb" in k else IndicatorType.MOVING_AVERAGE if "ma" in k else IndicatorType.VOLUME if "volume" in k else IndicatorType.STOCHASTIC if "stoch" in k else IndicatorType.ADX if "adx" in k else IndicatorType.ATR if "atr" in k else IndicatorType.RSI,
+                    value=v,
+                    signal="neutral",
+                    confidence=0.5,
+                    timestamp=datetime.utcnow(),
+                    metadata={}
+                ) for k, v in indicators.items() if k != "_cache_time"}
+            }
+            
+            return indicators
+            
+        except Exception as e:
+            logger.error(f"❌ Indicators calculation error for {pair}: {e}")
+            return {}
+    
+    def _get_price_data(self, pair: str) -> List[float]:
+        """Get price data for a pair"""
+        try:
+            if pair not in self.data_cache:
+                return []
+            
+            # Extract closing prices
+            prices = [data.close for data in self.data_cache[pair]]
+            return prices
+            
+        except Exception as e:
+            logger.error(f"❌ Price data extraction error: {e}")
+            return []
+    
+    async def _calculate_rsi(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate Relative Strength Index (RSI)"""
+        try:
+            if len(prices) < self.rsi_period + 1:
+                return None
+            
+            # Calculate price changes
+            deltas = np.diff(prices)
+            
+            # Separate gains and losses
+            gains = np.where(deltas > 0, deltas, 0)
+            losses = np.where(deltas < 0, -deltas, 0)
+            
+            # Calculate average gains and losses
+            avg_gains = self._calculate_ema(gains, self.rsi_period)
+            avg_losses = self._calculate_ema(losses, self.rsi_period)
+            
+            # Calculate RSI
+            rs = avg_gains / avg_losses
+            rsi = 100 - (100 / (1 + rs))
+            
+            # Determine signal
+            signal = "neutral"
+            if rsi < 30:
+                signal = "buy"
+            elif rsi > 70:
+                signal = "sell"
+            
+            # Calculate confidence
+            confidence = 0.5
+            if rsi < 20 or rsi > 80:
+                confidence = 0.8
+            elif rsi < 30 or rsi > 70:
+                confidence = 0.6
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.RSI,
+                value=float(rsi),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={"period": self.rsi_period}
             )
             
         except Exception as e:
-            logger.error(f"Error analyzing market conditions: {e}")
-            return MarketCondition(
-                trend_direction="SIDEWAYS",
-                trend_strength=0.5,
-                volatility="MEDIUM",
-                momentum="NEUTRAL",
-                overall_signal="HOLD",
-                confidence=0.0
+            logger.error(f"❌ RSI calculation error: {e}")
+            return None
+    
+    async def _calculate_macd(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate MACD (Moving Average Convergence Divergence)"""
+        try:
+            if len(prices) < self.macd_slow + self.macd_signal:
+                return None
+            
+            # Calculate fast and slow EMAs
+            ema_fast = self._calculate_ema(prices, self.macd_fast)
+            ema_slow = self._calculate_ema(prices, self.macd_slow)
+            
+            # Calculate MACD line
+            macd_line = ema_fast - ema_slow
+            
+            # Calculate signal line
+            signal_line = self._calculate_ema([macd_line], self.macd_signal)
+            
+            # Calculate histogram
+            histogram = macd_line - signal_line
+            
+            # Determine signal
+            signal = "neutral"
+            if macd_line > signal_line and histogram > 0:
+                signal = "buy"
+            elif macd_line < signal_line and histogram < 0:
+                signal = "sell"
+            
+            # Calculate confidence
+            confidence = 0.5
+            if abs(histogram) > abs(macd_line) * 0.1:
+                confidence = 0.7
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.MACD,
+                value=float(macd_line),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "signal_line": float(signal_line),
+                    "histogram": float(histogram),
+                    "fast_period": self.macd_fast,
+                    "slow_period": self.macd_slow,
+                    "signal_period": self.macd_signal
+                }
             )
             
-    def get_dynamic_grid_config(
-        self,
-        market_condition: MarketCondition,
-        current_price: float,
-        atr_value: float
-    ) -> Dict[str, Any]:
-        """
-        Gera configuração dinâmica de grid baseada nas condições do mercado
-        
-        Returns:
-            Dict com configuração do grid DCA
-        """
-        base_spacing = (atr_value / current_price) * 100  # ATR como % do preço
-        
-        if market_condition.trend_direction == "SIDEWAYS":
-            # Grid lateral - espaçamento menor
-            grid_spacing_min = max(base_spacing * 0.5, 1.0)
-            grid_spacing_max = min(base_spacing * 1.5, 3.0)
-            grid_width = 15.0  # ±15% do preço central
+        except Exception as e:
+            logger.error(f"❌ MACD calculation error: {e}")
+            return None
+    
+    async def _calculate_bollinger_bands(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate Bollinger Bands"""
+        try:
+            if len(prices) < self.bb_period:
+                return None
             
-        elif market_condition.volatility == "HIGH":
-            # Alta volatilidade - espaçamento maior
-            grid_spacing_min = max(base_spacing * 1.0, 2.0)
-            grid_spacing_max = min(base_spacing * 2.5, 5.0)
-            grid_width = 25.0  # ±25% do preço central
+            # Calculate simple moving average
+            sma = np.mean(prices[-self.bb_period:])
             
-        else:
-            # Condições normais
-            grid_spacing_min = max(base_spacing * 0.75, 1.5)
-            grid_spacing_max = min(base_spacing * 2.0, 4.0)
-            grid_width = 20.0  # ±20% do preço central
+            # Calculate standard deviation
+            std = np.std(prices[-self.bb_period:])
             
-        # Níveis de grid
-        num_levels = 5
-        grid_levels = []
-        
-        for i in range(-num_levels, num_levels + 1):
-            if i == 0:
-                continue  # Pular o nível central
+            # Calculate bands
+            upper_band = sma + (self.bb_std * std)
+            lower_band = sma - (self.bb_std * std)
+            
+            # Calculate bandwidth
+            bandwidth = (upper_band - lower_band) / sma * 100
+            
+            # Determine signal based on current price position
+            current_price = prices[-1]
+            signal = "neutral"
+            
+            if current_price < lower_band:
+                signal = "buy"
+            elif current_price > upper_band:
+                signal = "sell"
+            
+            # Calculate confidence
+            confidence = 0.5
+            if current_price < lower_band * 0.99 or current_price > upper_band * 1.01:
+                confidence = 0.7
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.BOLLINGER_BANDS,
+                value=float(bandwidth),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "upper": float(upper_band),
+                    "middle": float(sma),
+                    "lower": float(lower_band),
+                    "width": float(bandwidth),
+                    "period": self.bb_period,
+                    "std_dev": self.bb_std
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Bollinger Bands calculation error: {e}")
+            return None
+    
+    async def _calculate_moving_averages(self, prices: List[float]) -> Dict[int, IndicatorResult]:
+        """Calculate multiple moving averages"""
+        try:
+            results = {}
+            
+            for period in self.ma_periods:
+                if len(prices) < period:
+                    continue
                 
-            level_spacing = grid_spacing_min + (abs(i) - 1) * (grid_spacing_max - grid_spacing_min) / (num_levels - 1)
-            level_price = current_price * (1 + (i * level_spacing / 100))
+                # Calculate simple moving average
+                sma = np.mean(prices[-period:])
+                
+                # Determine signal based on price vs MA
+                current_price = prices[-1]
+                signal = "neutral"
+                
+                if current_price > sma:
+                    signal = "buy"
+                else:
+                    signal = "sell"
+                
+                # Calculate confidence
+                confidence = 0.5
+                price_diff = abs(current_price - sma) / sma
+                if price_diff > 0.05:  # 5% difference
+                    confidence = 0.7
+                
+                results[period] = IndicatorResult(
+                    indicator_type=IndicatorType.MOVING_AVERAGE,
+                    value=float(sma),
+                    signal=signal,
+                    confidence=confidence,
+                    timestamp=datetime.utcnow(),
+                    metadata={"period": period}
+                )
             
-            grid_levels.append({
-                "level": i,
-                "price": level_price,
-                "spacing_percent": level_spacing,
-                "side": "sell" if i > 0 else "buy"
-            })
+            return results
             
-        return {
-            "center_price": current_price,
-            "grid_spacing_min": grid_spacing_min,
-            "grid_spacing_max": grid_spacing_max,
-            "grid_width": grid_width,
-            "levels": grid_levels,
-            "market_condition": market_condition.trend_direction,
-            "volatility": market_condition.volatility,
-            "recommended_position_size": min(1000.0, current_price * 0.01),  # 1% do preço ou $1000
-            "stop_loss_distance": atr_value * 2.0  # 2x ATR para stop loss
-        }
+        except Exception as e:
+            logger.error(f"❌ Moving Averages calculation error: {e}")
+            return {}
+    
+    async def _calculate_volume_indicators(self, pair: str) -> Optional[IndicatorResult]:
+        """Calculate volume-based indicators"""
+        try:
+            if pair not in self.data_cache or len(self.data_cache[pair]) < 20:
+                return None
+            
+            # Get volume data
+            volumes = [data.volume for data in self.data_cache[pair]]
+            current_volume = volumes[-1]
+            avg_volume = np.mean(volumes[-20:])
+            
+            # Calculate volume ratio
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            
+            # Determine signal
+            signal = "neutral"
+            if volume_ratio > 1.5:
+                signal = "buy"  # High volume often indicates strong moves
+            elif volume_ratio < 0.5:
+                signal = "sell"  # Low volume might indicate weak moves
+            
+            # Calculate confidence
+            confidence = 0.5
+            if volume_ratio > 2.0 or volume_ratio < 0.3:
+                confidence = 0.7
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.VOLUME,
+                value=float(current_volume),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "avg_volume": float(avg_volume),
+                    "volume_ratio": float(volume_ratio)
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Volume indicators calculation error: {e}")
+            return None
+    
+    async def _calculate_stochastic(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate Stochastic Oscillator"""
+        try:
+            if len(prices) < self.stoch_k + self.stoch_d:
+                return None
+            
+            # Get high and low prices (using close price as approximation)
+            highs = prices
+            lows = prices
+            
+            # Calculate %K
+            lowest_low = min(lows[-self.stoch_k:])
+            highest_high = max(highs[-self.stoch_k:])
+            
+            if highest_high == lowest_low:
+                k_percent = 50
+            else:
+                k_percent = ((prices[-1] - lowest_low) / (highest_high - lowest_low)) * 100
+            
+            # Calculate %D (SMA of %K)
+            k_values = []
+            for i in range(self.stoch_d):
+                if len(prices) >= self.stoch_k + i:
+                    period_low = min(lows[-(self.stoch_k + i):-i])
+                    period_high = max(highs[-(self.stoch_k + i):-i])
+                    if period_high == period_low:
+                        k_val = 50
+                    else:
+                        k_val = ((prices[-(i + 1)] - period_low) / (period_high - period_low)) * 100
+                    k_values.append(k_val)
+            
+            d_percent = np.mean(k_values) if k_values else k_percent
+            
+            # Determine signal
+            signal = "neutral"
+            if k_percent < 20 and d_percent < 20:
+                signal = "buy"
+            elif k_percent > 80 and d_percent > 80:
+                signal = "sell"
+            
+            # Calculate confidence
+            confidence = 0.5
+            if (k_percent < 10 and d_percent < 10) or (k_percent > 90 and d_percent > 90):
+                confidence = 0.8
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.STOCHASTIC,
+                value=float(k_percent),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "stoch_d": float(d_percent),
+                    "k_period": self.stoch_k,
+                    "d_period": self.stoch_d
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Stochastic calculation error: {e}")
+            return None
+    
+    async def _calculate_adx(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate Average Directional Index (ADX)"""
+        try:
+            if len(prices) < self.adx_period * 2:
+                return None
+            
+            # Calculate True Range and Directional Movement
+            tr_values = []
+            dm_plus_values = []
+            dm_minus_values = []
+            
+            for i in range(1, len(prices)):
+                # True Range
+                high = prices[i]  # Using close as approximation
+                low = prices[i]
+                prev_close = prices[i - 1]
+                
+                tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+                tr_values.append(tr)
+                
+                # Directional Movement
+                up_move = high - prev_close
+                down_move = prev_close - low
+                
+                if up_move > down_move and up_move > 0:
+                    dm_plus = up_move
+                    dm_minus = 0
+                elif down_move > up_move and down_move > 0:
+                    dm_plus = 0
+                    dm_minus = down_move
+                else:
+                    dm_plus = 0
+                    dm_minus = 0
+                
+                dm_plus_values.append(dm_plus)
+                dm_minus_values.append(dm_minus)
+            
+            # Calculate smoothed values
+            atr = self._calculate_ema(tr_values, self.adx_period)
+            di_plus = self._calculate_ema(dm_plus_values, self.adx_period) / atr * 100
+            di_minus = self._calculate_ema(dm_minus_values, self.adx_period) / atr * 100
+            
+            # Calculate ADX
+            dx = abs(di_plus - di_minus) / (di_plus + di_minus) * 100
+            adx = self._calculate_ema([dx], self.adx_period)
+            
+            # Determine signal
+            signal = "neutral"
+            if adx > 25:
+                if di_plus > di_minus:
+                    signal = "buy"
+                else:
+                    signal = "sell"
+            
+            # Calculate confidence
+            confidence = 0.5
+            if adx > 30:
+                confidence = 0.7
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.ADX,
+                value=float(adx),
+                signal=signal,
+                confidence=confidence,
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "di_plus": float(di_plus),
+                    "di_minus": float(di_minus),
+                    "period": self.adx_period
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ ADX calculation error: {e}")
+            return None
+    
+    async def _calculate_atr(self, prices: List[float]) -> Optional[IndicatorResult]:
+        """Calculate Average True Range (ATR)"""
+        try:
+            if len(prices) < self.atr_period + 1:
+                return None
+            
+            # Calculate True Range
+            tr_values = []
+            for i in range(1, len(prices)):
+                high = prices[i]  # Using close as approximation
+                low = prices[i]
+                prev_close = prices[i - 1]
+                
+                tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+                tr_values.append(tr)
+            
+            # Calculate ATR using EMA
+            atr = self._calculate_ema(tr_values, self.atr_period)
+            
+            return IndicatorResult(
+                indicator_type=IndicatorType.ATR,
+                value=float(atr),
+                signal="neutral",  # ATR doesn't provide directional signals
+                confidence=0.5,
+                timestamp=datetime.utcnow(),
+                metadata={"period": self.atr_period}
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ ATR calculation error: {e}")
+            return None
+    
+    def _calculate_ema(self, data: List[float], period: int) -> float:
+        """Calculate Exponential Moving Average"""
+        try:
+            if not data:
+                return 0.0
+            
+            # Convert to numpy array
+            data_array = np.array(data)
+            
+            # Calculate EMA
+            alpha = 2.0 / (period + 1)
+            ema = data_array[0]
+            
+            for value in data_array[1:]:
+                ema = alpha * value + (1 - alpha) * ema
+            
+            return float(ema)
+            
+        except Exception as e:
+            logger.error(f"❌ EMA calculation error: {e}")
+            return 0.0
+    
+    async def get_signal_strength(self, pair: str) -> Dict[str, float]:
+        """Get overall signal strength for a pair"""
+        try:
+            indicators = await self.get_indicators(pair)
+            if not indicators:
+                return {"strength": 0.0, "signal": "neutral"}
+            
+            # Calculate weighted signal strength
+            signals = {
+                "rsi": indicators.get("rsi_signal", 0),
+                "macd": 1 if indicators.get("macd", 0) > indicators.get("macd_signal", 0) else -1,
+                "bb": 1 if indicators.get("price", 0) < indicators.get("bb_lower", 0) else -1 if indicators.get("price", 0) > indicators.get("bb_upper", 0) else 0,
+                "volume": 1 if indicators.get("volume_ratio", 1) > 1.5 else -1 if indicators.get("volume_ratio", 1) < 0.5 else 0,
+                "stoch": 1 if indicators.get("stoch_k", 50) < 20 and indicators.get("stoch_d", 50) < 20 else -1 if indicators.get("stoch_k", 50) > 80 and indicators.get("stoch_d", 50) > 80 else 0
+            }
+            
+            # Calculate weighted average
+            weights = {"rsi": 0.25, "macd": 0.25, "bb": 0.2, "volume": 0.15, "stoch": 0.15}
+            total_weight = 0
+            weighted_sum = 0
+            
+            for indicator, signal in signals.items():
+                weight = weights.get(indicator, 0)
+                total_weight += weight
+                weighted_sum += signal * weight
+            
+            strength = weighted_sum / total_weight if total_weight > 0 else 0
+            
+            # Determine overall signal
+            if strength > 0.3:
+                signal = "buy"
+            elif strength < -0.3:
+                signal = "sell"
+            else:
+                signal = "neutral"
+            
+            return {
+                "strength": strength,
+                "signal": signal,
+                "indicators": signals
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Signal strength calculation error: {e}")
+            return {"strength": 0.0, "signal": "neutral"}
+    
+    def clear_cache(self, pair: Optional[str] = None):
+        """Clear indicators cache"""
+        try:
+            if pair:
+                if pair in self.indicators_cache:
+                    del self.indicators_cache[pair]
+                if pair in self.data_cache:
+                    del self.data_cache[pair]
+            else:
+                self.indicators_cache.clear()
+                self.data_cache.clear()
+                
+            logger.info(f"🗑️ Cleared indicators cache for {pair or 'all pairs'}")
+            
+        except Exception as e:
+            logger.error(f"❌ Cache clear error: {e}")
+
+
+# Export main class
+__all__ = ["TechnicalIndicators", "IndicatorResult", "IndicatorType"]

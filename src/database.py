@@ -96,10 +96,11 @@ async def init_database() -> bool:
     """
     try:
         # Importar todos os modelos para garantir que sejam registrados
-        from src.models.models import (
-            User, Exchange, AIAgent, TradingPair, Order, TradeDecision,
-            TradeHistory, SystemSettings, NewsSource, MarketSentiment, SystemHealth
+        from src.models.manager import (
+            ExchangeKey, FundingWallet, 
+            BotSetting, IndicatorPreset
         )
+        from src.models.models import User  # Import from models.py instead
         
         logger.info("Creating database tables...")
         
@@ -211,6 +212,10 @@ async def get_async_db_session():
         raise
     finally:
         db.close()
+
+
+# Alias for backward compatibility
+async_db_session = get_async_db_session
 
 
 def check_database_connection() -> bool:

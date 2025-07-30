@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin: 0.25rem 0;
+        }
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            color: white;
+            background: rgba(255,255,255,0.1);
+        }
+        .main-content {
+            background-color: #f8f9fa;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .stat-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 px-0">
+                <div class="sidebar p-3">
+                    <div class="d-flex align-items-center mb-4">
+                        <i class="fas fa-robot text-white me-2" style="font-size: 1.5rem;"></i>
+                        <h5 class="text-white mb-0">CryptoSDCA-AI</h5>
+                    </div>
+                    
+                    <nav class="nav flex-column">
+                        <a class="nav-link active" href="/admin/">
+                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link" href="/admin/users">
+                            <i class="fas fa-users me-2"></i>Users
+                        </a>
+                        <a class="nav-link" href="/admin/exchanges">
+                            <i class="fas fa-exchange-alt me-2"></i>Exchanges
+                        </a>
+                        <a class="nav-link" href="/admin/ai-agents">
+                            <i class="fas fa-brain me-2"></i>AI Agents
+                        </a>
+                        <a class="nav-link" href="/admin/system-config">
+                            <i class="fas fa-cogs me-2"></i>System Config
+                        </a>
+                        <hr class="text-white">
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Main
+                        </a>
+                        <a class="nav-link" href="/auth/logout">
+                            <i class="fas fa-sign-out-alt me-2"></i>Logout
+                        </a>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 main-content">
+                <div class="p-4">
+                    <!-- Header -->
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div>
+                            <h2 class="mb-1">Admin Dashboard</h2>
+                            <p class="text-muted mb-0">Welcome back, {{ user.username }}!</p>
+                        </div>
+                        <div class="text-end">
+                            <small class="text-muted">Last updated: <span id="last-update">{{ moment().format('YYYY-MM-DD HH:mm:ss') }}</span></small>
+                        </div>
+                    </div>
+
+                    <!-- Statistics Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="stat-card p-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="stat-icon bg-primary text-white me-3">
+                                        <i class="fas fa-users"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="mb-1">{{ stats.users.total }}</h4>
+                                        <small class="text-muted">Total Users</small>
+                                        <div class="mt-1">
+                                            <span class="badge bg-success">{{ stats.users.active }} Active</span>
+                                            <span class="badge bg-info">{{ stats.users.admins }} Admins</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="stat-card p-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="stat-icon bg-success text-white me-3">
+                                        <i class="fas fa-exchange-alt"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="mb-1">{{ stats.exchanges.total }}</h4>
+                                        <small class="text-muted">Exchanges</small>
+                                        <div class="mt-1">
+                                            <span class="badge bg-success">{{ stats.exchanges.active }} Active</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="stat-card p-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="stat-icon bg-warning text-white me-3">
+                                        <i class="fas fa-brain"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="mb-1">{{ stats.ai_agents.total }}</h4>
+                                        <small class="text-muted">AI Agents</small>
+                                        <div class="mt-1">
+                                            <span class="badge bg-success">{{ stats.ai_agents.active }} Active</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="stat-card p-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="stat-icon bg-info text-white me-3">
+                                        <i class="fas fa-chart-line"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="mb-1">{{ stats.trading_pairs.total }}</h4>
+                                        <small class="text-muted">Trading Pairs</small>
+                                        <div class="mt-1">
+                                            <span class="badge bg-success">{{ stats.trading_pairs.active }} Active</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Quick Actions</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-3 mb-2">
+                                            <a href="/admin/users" class="btn btn-outline-primary w-100">
+                                                <i class="fas fa-user-plus me-2"></i>Add User
+                                            </a>
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <a href="/admin/exchanges" class="btn btn-outline-success w-100">
+                                                <i class="fas fa-plus me-2"></i>Add Exchange
+                                            </a>
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <a href="/admin/ai-agents" class="btn btn-outline-warning w-100">
+                                                <i class="fas fa-plus me-2"></i>Add AI Agent
+                                            </a>
+                                        </div>
+                                        <div class="col-md-3 mb-2">
+                                            <a href="/admin/system-config" class="btn btn-outline-info w-100">
+                                                <i class="fas fa-cog me-2"></i>System Config
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Status -->
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0">System Status</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span>Database</span>
+                                        <span class="badge bg-success">Online</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span>Trading Engine</span>
+                                        <span class="badge bg-warning">Paused</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span>AI Validation</span>
+                                        <span class="badge bg-success">Active</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span>Risk Management</span>
+                                        <span class="badge bg-success">Active</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Recent Activity</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="list-group list-group-flush">
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <small class="text-muted">User login</small>
+                                                <div>admin logged in</div>
+                                            </div>
+                                            <small class="text-muted">2 min ago</small>
+                                        </div>
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <small class="text-muted">System update</small>
+                                                <div>Configuration updated</div>
+                                            </div>
+                                            <small class="text-muted">1 hour ago</small>
+                                        </div>
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <small class="text-muted">Trade executed</small>
+                                                <div>BTC/USDT buy order</div>
+                                            </div>
+                                            <small class="text-muted">3 hours ago</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            document.getElementById('last-update').textContent = now.toLocaleString();
+        }
+        
+        // Update every minute
+        setInterval(updateTimestamp, 60000);
+        updateTimestamp();
+    </script>
+</body>
+</html>

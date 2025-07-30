@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Configuration - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .admin-card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        .config-section {
+            border-left: 4px solid #0d6efd;
+            padding-left: 1rem;
+            margin-bottom: 2rem;
+        }
+        .config-section h5 {
+            color: #0d6efd;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/admin">
+                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI Admin
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/admin">
+                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/admin/users">
+                    <i class="fas fa-users me-1"></i>Users
+                </a>
+                <a class="nav-link" href="/admin/exchanges">
+                    <i class="fas fa-exchange-alt me-1"></i>Exchanges
+                </a>
+                <a class="nav-link" href="/admin/ai-agents">
+                    <i class="fas fa-brain me-1"></i>AI Agents
+                </a>
+                <a class="nav-link active" href="/admin/system-config">
+                    <i class="fas fa-cogs me-1"></i>System Config
+                </a>
+                <a class="nav-link" href="/auth/logout">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-cogs me-2"></i>System Configuration</h2>
+            <button class="btn btn-primary" onclick="saveAllConfigurations()">
+                <i class="fas fa-save me-2"></i>Save All Changes
+            </button>
+        </div>
+
+        <!-- System Status -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="admin-card p-3 text-center">
+                    <h4 class="text-success">{{ system_status.status }}</h4>
+                    <p class="text-muted mb-0">System Status</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="admin-card p-3 text-center">
+                    <h4 class="text-primary">{{ system_status.uptime }}</h4>
+                    <p class="text-muted mb-0">Uptime</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="admin-card p-3 text-center">
+                    <h4 class="text-info">{{ system_status.active_trades }}</h4>
+                    <p class="text-muted mb-0">Active Trades</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="admin-card p-3 text-center">
+                    <h4 class="text-warning">{{ system_status.total_pnl }}</h4>
+                    <p class="text-muted mb-0">Total P&L</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Trading Configuration -->
+                <div class="admin-card p-4 mb-4">
+                    <div class="config-section">
+                        <h5><i class="fas fa-chart-line me-2"></i>Trading Configuration</h5>
+                        <form id="trading-config-form">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="default-profit-target" class="form-label">Default Profit Target (%)</label>
+                                    <input type="number" class="form-control" id="default-profit-target" name="default_profit_target" 
+                                           value="{{ system_config.default_profit_target }}" step="0.1" min="0" max="100">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="default-stop-loss" class="form-label">Default Stop Loss (%)</label>
+                                    <input type="number" class="form-control" id="default-stop-loss" name="default_stop_loss" 
+                                           value="{{ system_config.default_stop_loss }}" step="0.1" min="-100" max="0">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="max-portfolio-exposure" class="form-label">Max Portfolio Exposure (%)</label>
+                                    <input type="number" class="form-control" id="max-portfolio-exposure" name="max_portfolio_exposure" 
+                                           value="{{ system_config.max_portfolio_exposure }}" step="0.1" min="0" max="100">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="max-daily-drawdown" class="form-label">Max Daily Drawdown (%)</label>
+                                    <input type="number" class="form-control" id="max-daily-drawdown" name="max_daily_drawdown" 
+                                           value="{{ system_config.max_daily_drawdown }}" step="0.1" min="0" max="100">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="min-pairs-count" class="form-label">Min Pairs Count</label>
+                                    <input type="number" class="form-control" id="min-pairs-count" name="min_pairs_count" 
+                                           value="{{ system_config.min_pairs_count }}" min="1" max="50">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="max-pairs-count" class="form-label">Max Pairs Count</label>
+                                    <input type="number" class="form-control" id="max-pairs-count" name="max_pairs_count" 
+                                           value="{{ system_config.max_pairs_count }}" min="1" max="100">
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Risk Management Configuration -->
+                <div class="admin-card p-4 mb-4">
+                    <div class="config-section">
+                        <h5><i class="fas fa-shield-alt me-2"></i>Risk Management Configuration</h5>
+                        <form id="risk-config-form">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="max-position-size" class="form-label">Max Position Size (%)</label>
+                                    <input type="number" class="form-control" id="max-position-size" name="max_position_size" 
+                                           value="{{ system_config.max_position_size }}" step="0.1" min="0" max="100">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="max-correlation" class="form-label">Max Correlation</label>
+                                    <input type="number" class="form-control" id="max-correlation" name="max_correlation" 
+                                           value="{{ system_config.max_correlation }}" step="0.1" min="0" max="1">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="var-confidence" class="form-label">VaR Confidence Level (%)</label>
+                                    <input type="number" class="form-control" id="var-confidence" name="var_confidence" 
+                                           value="{{ system_config.var_confidence }}" step="0.1" min="90" max="99">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="circuit-breaker-threshold" class="form-label">Circuit Breaker Threshold (%)</label>
+                                    <input type="number" class="form-control" id="circuit-breaker-threshold" name="circuit_breaker_threshold" 
+                                           value="{{ system_config.circuit_breaker_threshold }}" step="0.1" min="0" max="50">
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Technical Indicators Configuration -->
+                <div class="admin-card p-4 mb-4">
+                    <div class="config-section">
+                        <h5><i class="fas fa-chart-bar me-2"></i>Technical Indicators Configuration</h5>
+                        <form id="indicators-config-form">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="rsi-period" class="form-label">RSI Period</label>
+                                    <input type="number" class="form-control" id="rsi-period" name="rsi_period" 
+                                           value="{{ system_config.rsi_period }}" min="5" max="50">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="rsi-overbought" class="form-label">RSI Overbought</label>
+                                    <input type="number" class="form-control" id="rsi-overbought" name="rsi_overbought" 
+                                           value="{{ system_config.rsi_overbought }}" min="50" max="100">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="rsi-oversold" class="form-label">RSI Oversold</label>
+                                    <input type="number" class="form-control" id="rsi-oversold" name="rsi_oversold" 
+                                           value="{{ system_config.rsi_oversold }}" min="0" max="50">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="macd-fast" class="form-label">MACD Fast Period</label>
+                                    <input type="number" class="form-control" id="macd-fast" name="macd_fast" 
+                                           value="{{ system_config.macd_fast }}" min="5" max="50">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="macd-slow" class="form-label">MACD Slow Period</label>
+                                    <input type="number" class="form-control" id="macd-slow" name="macd_slow" 
+                                           value="{{ system_config.macd_slow }}" min="10" max="100">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="macd-signal" class="form-label">MACD Signal Period</label>
+                                    <input type="number" class="form-control" id="macd-signal" name="macd_signal" 
+                                           value="{{ system_config.macd_signal }}" min="5" max="50">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="bb-period" class="form-label">Bollinger Bands Period</label>
+                                    <input type="number" class="form-control" id="bb-period" name="bb_period" 
+                                           value="{{ system_config.bb_period }}" min="5" max="100">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="bb-std" class="form-label">Bollinger Bands Std Dev</label>
+                                    <input type="number" class="form-control" id="bb-std" name="bb_std" 
+                                           value="{{ system_config.bb_std }}" step="0.1" min="1" max="5">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="ema-period" class="form-label">EMA Period</label>
+                                    <input type="number" class="form-control" id="ema-period" name="ema_period" 
+                                           value="{{ system_config.ema_period }}" min="5" max="200">
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- DCA Configuration -->
+                <div class="admin-card p-4 mb-4">
+                    <div class="config-section">
+                        <h5><i class="fas fa-layer-group me-2"></i>DCA Configuration</h5>
+                        <form id="dca-config-form">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="dca-layers" class="form-label">DCA Layers</label>
+                                    <input type="number" class="form-control" id="dca-layers" name="dca_layers" 
+                                           value="{{ system_config.dca_layers }}" min="1" max="10">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="dca-spacing" class="form-label">DCA Spacing (%)</label>
+                                    <input type="number" class="form-control" id="dca-spacing" name="dca_spacing" 
+                                           value="{{ system_config.dca_spacing }}" step="0.1" min="1" max="20">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="dca-size-increase" class="form-label">DCA Size Increase (%)</label>
+                                    <input type="number" class="form-control" id="dca-size-increase" name="dca_size_increase" 
+                                           value="{{ system_config.dca_size_increase }}" step="0.1" min="0" max="100">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="dca-max-cycles" class="form-label">Max DCA Cycles</label>
+                                    <input type="number" class="form-control" id="dca-max-cycles" name="dca_max_cycles" 
+                                           value="{{ system_config.dca_max_cycles }}" min="1" max="20">
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <!-- System Actions -->
+                <div class="admin-card p-4 mb-4">
+                    <h5><i class="fas fa-play-circle me-2"></i>System Actions</h5>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" onclick="startTrading()">
+                            <i class="fas fa-play me-2"></i>Start Trading
+                        </button>
+                        <button class="btn btn-warning" onclick="pauseTrading()">
+                            <i class="fas fa-pause me-2"></i>Pause Trading
+                        </button>
+                        <button class="btn btn-danger" onclick="stopTrading()">
+                            <i class="fas fa-stop me-2"></i>Stop Trading
+                        </button>
+                        <button class="btn btn-info" onclick="syncAllData()">
+                            <i class="fas fa-sync me-2"></i>Sync All Data
+                        </button>
+                        <button class="btn btn-secondary" onclick="clearCache()">
+                            <i class="fas fa-broom me-2"></i>Clear Cache
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Information -->
+                <div class="admin-card p-4 mb-4">
+                    <h5><i class="fas fa-info-circle me-2"></i>System Information</h5>
+                    <div class="small">
+                        <div class="mb-2">
+                            <strong>Version:</strong> {{ system_info.version }}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Python:</strong> {{ system_info.python_version }}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Database:</strong> {{ system_info.database }}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Last Backup:</strong> {{ system_info.last_backup }}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Memory Usage:</strong> {{ system_info.memory_usage }}
+                        </div>
+                        <div class="mb-2">
+                            <strong>CPU Usage:</strong> {{ system_info.cpu_usage }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Settings -->
+                <div class="admin-card p-4">
+                    <h5><i class="fas fa-sliders-h me-2"></i>Quick Settings</h5>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="ai-validation" 
+                               {% if system_config.ai_validation_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="ai-validation">
+                            AI Validation
+                        </label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="risk-management" 
+                               {% if system_config.risk_management_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="risk-management">
+                            Risk Management
+                        </label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="sentiment-analysis" 
+                               {% if system_config.sentiment_analysis_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="sentiment-analysis">
+                            Sentiment Analysis
+                        </label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="notifications" 
+                               {% if system_config.notifications_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="notifications">
+                            Notifications
+                        </label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="debug-mode" 
+                               {% if system_config.debug_mode %}checked{% endif %}>
+                        <label class="form-check-label" for="debug-mode">
+                            Debug Mode
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function saveAllConfigurations() {
+            // Collect all form data
+            const tradingData = new FormData(document.getElementById('trading-config-form'));
+            const riskData = new FormData(document.getElementById('risk-config-form'));
+            const indicatorsData = new FormData(document.getElementById('indicators-config-form'));
+            const dcaData = new FormData(document.getElementById('dca-config-form'));
+
+            // Combine all data
+            const allData = new FormData();
+            for (let [key, value] of tradingData.entries()) allData.append(key, value);
+            for (let [key, value] of riskData.entries()) allData.append(key, value);
+            for (let [key, value] of indicatorsData.entries()) allData.append(key, value);
+            for (let [key, value] of dcaData.entries()) allData.append(key, value);
+
+            // Add quick settings
+            allData.append('ai_validation_enabled', document.getElementById('ai-validation').checked);
+            allData.append('risk_management_enabled', document.getElementById('risk-management').checked);
+            allData.append('sentiment_analysis_enabled', document.getElementById('sentiment-analysis').checked);
+            allData.append('notifications_enabled', document.getElementById('notifications').checked);
+            allData.append('debug_mode', document.getElementById('debug-mode').checked);
+
+            // Save configuration
+            fetch('/admin/system-config/update', {
+                method: 'POST',
+                body: allData
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert('System configuration saved successfully!');
+                } else {
+                    alert('Error: ' + result.detail);
+                }
+            })
+            .catch(error => {
+                alert('Error saving configuration: ' + error.message);
+            });
+        }
+
+        function startTrading() {
+            if (confirm('Start trading system?')) {
+                fetch('/admin/system-config/start-trading', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Trading system started successfully!');
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error starting trading: ' + error.message);
+                });
+            }
+        }
+
+        function pauseTrading() {
+            if (confirm('Pause trading system?')) {
+                fetch('/admin/system-config/pause-trading', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Trading system paused successfully!');
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error pausing trading: ' + error.message);
+                });
+            }
+        }
+
+        function stopTrading() {
+            if (confirm('Stop trading system? This will close all positions.')) {
+                fetch('/admin/system-config/stop-trading', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Trading system stopped successfully!');
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error stopping trading: ' + error.message);
+                });
+            }
+        }
+
+        function syncAllData() {
+            if (confirm('Sync all data from exchanges?')) {
+                fetch('/admin/system-config/sync-data', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Data sync completed successfully!');
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error syncing data: ' + error.message);
+                });
+            }
+        }
+
+        function clearCache() {
+            if (confirm('Clear all system cache?')) {
+                fetch('/admin/system-config/clear-cache', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Cache cleared successfully!');
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error clearing cache: ' + error.message);
+                });
+            }
+        }
+    </script>
+</body>
+</html>

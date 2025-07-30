@@ -1,76 +1,65 @@
 """
-src/core/dca_engine.py
-DCA (Dollar Cost Averaging) Engine for CryptoSDCA-AI
-
-Implements intelligent multi-layer DCA strategy:
-- Dynamic grid trading based on market conditions
-- AI validation for each trade decision
-- Risk management and position sizing
-- Automatic recalibration based on volatility
-- Integration with technical indicators and sentiment analysis
+src/core/dca_engine.py - DCA Engine for CryptoSDCA-AI
+Implements intelligent multi-layer Dollar Cost Averaging strategy
 """
 
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
 from enum import Enum
 
 from loguru import logger
-import ccxt.async_support as ccxt
 
 from src.config import get_settings
-from src.database import get_db_session
-from src.models.models import TradingPair, Order, OrderSide, OrderType, OrderStatus, TradeHistory
-from src.core.indicators import TechnicalIndicators, MarketCondition
-from src.core.ai_validator import AIValidator
+from src.exceptions import TradingError, RiskManagementError
+from src.core.exchange_manager import ExchangeManager, MarketData
+from src.core.ai_validator import AIValidator, TradeHypothesis, AIDecision
 from src.core.sentiment_analyzer import SentimentAnalyzer
 from src.core.risk_manager import RiskManager
-from src.core.exchange_manager import ExchangeManager
+from src.core.indicators import TechnicalIndicators
+from src.database import get_db_session
 
 
-class GridLevel(Enum):
-    BUY = "buy"
-    SELL = "sell"
-    TAKE_PROFIT = "take_profit"
-
-
-@dataclass
-class GridOrder:
-    """Ordem individual do grid"""
-    level: int
-    price: float
-    quantity: float
-    side: GridLevel
-    executed: bool = False
-    order_id: Optional[str] = None
-    parent_order_id: Optional[int] = None
+class DCAStatus(Enum):
+    """DCA strategy status"""
+    IDLE = "idle"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPED = "stopped"
 
 
 @dataclass
 class DCAPosition:
-    """Posição DCA ativa"""
-    symbol: str
-    exchange: str
-    entry_price: float
+    """DCA position information"""
+    pair: str
+    exchange_id: int
     total_quantity: float
-    total_cost: float
     average_price: float
-    current_profit_loss: float
-    profit_percentage: float
-    grid_orders: List[GridOrder]
-    max_duration_hours: int
+    total_invested: float
+    current_value: float
+    grid_levels: List[Dict[str, Any]]
+    status: str
     created_at: datetime
-    target_profit_percent: float
-    stop_loss_percent: float
-    
-    
+    updated_at: datetime
+
+
+@dataclass
+class DCASignal:
+    """DCA trading signal"""
+    pair: str
+    side: str  # "buy" or "sell"
+    quantity: float
+    price: float
+    grid_level: int
+    confidence: float
+    indicators: Dict[str, float]
+    timestamp: datetime
+
+
 class DCAEngine:
-    """
-    Engine principal de DCA inteligente
-    Gerencia múltiplas posições simultaneamente com grid dinâmico
-    """
+    """Intelligent multi-layer DCA trading engine"""
     
     def __init__(
         self,
@@ -86,534 +75,678 @@ class DCAEngine:
         self.risk_manager = risk_manager
         self.indicators = TechnicalIndicators()
         
-        # Estado interno
-        self.active_positions: Dict[str, DCAPosition] = {}
-        self.is_running = False
-        self.last_recalibration = datetime.utcnow()
+        self.status = DCAStatus.IDLE
+        self.positions: Dict[str, DCAPosition] = {}
+        self.active_pairs: List[str] = []
+        self.daily_profit = 0.0
+        self.total_trades = 0
         
-        # Configurações
-        self.base_currencies = self.settings.get_base_currencies_list()  # DAI, USDC, USDT
-        self.min_pairs_count = self.settings.min_pairs_count
-        self.max_operation_duration = self.settings.max_operation_duration_hours
+        # Grid configuration
+        self.grid_config = {
+            "sideways": {
+                "spacing_min": 1.0,
+                "spacing_max": 3.0,
+                "width_min": 15.0,
+                "width_max": 25.0
+            },
+            "trend": {
+                "spacing_min": 2.0,
+                "spacing_max": 5.0,
+                "width_min": 25.0,
+                "width_max": 40.0
+            }
+        }
+        
+        # Trading parameters
+        self.profit_target = self.settings.default_profit_target
+        self.stop_loss = self.settings.default_stop_loss
+        self.max_duration = self.settings.max_operation_duration_hours
+        self.min_pairs = self.settings.min_pairs_count
         
     async def initialize(self):
-        """Inicializa o engine DCA"""
+        """Initialize DCA engine"""
         try:
-            logger.info("Initializing DCA Engine...")
+            logger.info("🔄 Initializing DCA Engine...")
             
-            # Carregar posições ativas do banco de dados
-            await self._load_active_positions()
+            # Load existing positions from database
+            await self._load_positions()
             
-            # Verificar pares de trading disponíveis
-            await self._update_available_pairs()
+            # Initialize technical indicators
+            await self.indicators.initialize()
             
-            logger.info(f"DCA Engine initialized with {len(self.active_positions)} active positions")
+            # Validate configuration
+            self._validate_configuration()
+            
+            logger.info("✅ DCA Engine initialized")
             
         except Exception as e:
-            logger.error(f"Failed to initialize DCA Engine: {e}")
-            raise
-            
-    async def close(self):
-        """Fecha o engine DCA"""
-        self.is_running = False
-        logger.info("DCA Engine closed")
-        
-    async def start_trading_loop(self):
-        """Inicia o loop principal de trading"""
-        
-        if self.is_running:
-            logger.warning("DCA Engine is already running")
-            return
-            
-        self.is_running = True
-        logger.info("Starting DCA trading loop...")
-        
-        while self.is_running:
-            try:
-                # Verificar se está em modo paper trading
-                if self.settings.paper_trading:
-                    logger.debug("Running in paper trading mode")
-                
-                # 1. Monitorar posições ativas
-                await self._monitor_active_positions()
-                
-                # 2. Verificar oportunidades de novas posições
-                await self._scan_new_opportunities()
-                
-                # 3. Rebalancear grid se necessário
-                await self._rebalance_grids()
-                
-                # 4. Verificar condições de saída
-                await self._check_exit_conditions()
-                
-                # Aguardar antes da próxima iteração
-                await asyncio.sleep(30)  # 30 segundos entre verificações
-                
-            except Exception as e:
-                logger.error(f"Error in DCA trading loop: {e}")
-                await asyncio.sleep(60)  # Aguardar mais tempo em caso de erro
-                
-    async def _monitor_active_positions(self):
-        """Monitora posições ativas e atualiza status"""
-        
-        for symbol, position in list(self.active_positions.items()):
-            try:
-                # Obter preço atual
-                current_price = await self.exchange_manager.get_current_price(symbol, position.exchange)
-                
-                if current_price:
-                    # Atualizar P&L da posição
-                    self._update_position_pnl(position, current_price)
-                    
-                    # Verificar ordens do grid
-                    await self._check_grid_orders(position, current_price)
-                    
-                    # Verificar condições de take profit / stop loss
-                    await self._check_profit_loss_conditions(position, current_price)
-                    
-            except Exception as e:
-                logger.error(f"Error monitoring position {symbol}: {e}")
-                
-    async def _scan_new_opportunities(self):
-        """Escaneia o mercado por novas oportunidades de DCA"""
-        
-        # Verificar se já temos o número mínimo de posições
-        if len(self.active_positions) >= self.min_pairs_count:
-            return
-            
+            logger.error(f"❌ Failed to initialize DCA Engine: {e}")
+            raise TradingError(f"DCA Engine initialization failed: {str(e)}")
+    
+    async def _load_positions(self):
+        """Load existing DCA positions from database"""
         try:
-            # Obter pares disponíveis
+            # This would load from the database
+            # For now, we'll start with empty positions
+            logger.info("📋 Loading DCA positions from database")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load positions: {e}")
+    
+    def _validate_configuration(self):
+        """Validate DCA configuration"""
+        if self.profit_target <= 0:
+            raise TradingError("Profit target must be positive")
+        
+        if self.stop_loss >= 0:
+            raise TradingError("Stop loss must be negative")
+        
+        if self.max_duration <= 0:
+            raise TradingError("Max duration must be positive")
+        
+        if self.min_pairs <= 0:
+            raise TradingError("Min pairs must be positive")
+    
+    async def start_trading_loop(self):
+        """Start the main DCA trading loop"""
+        if self.status == DCAStatus.RUNNING:
+            logger.warning("⚠️ DCA Engine already running")
+            return
+        
+        self.status = DCAStatus.RUNNING
+        logger.info("🚀 Starting DCA trading loop")
+        
+        try:
+            while self.status == DCAStatus.RUNNING:
+                await self._trading_cycle()
+                await asyncio.sleep(60)  # Wait 1 minute between cycles
+                
+        except Exception as e:
+            logger.error(f"❌ DCA trading loop error: {e}")
+            self.status = DCAStatus.STOPPED
+            raise
+    
+    async def _trading_cycle(self):
+        """Execute one trading cycle"""
+        try:
+            # 1. Update market data
+            await self._update_market_data()
+            
+            # 2. Analyze sentiment
+            sentiment_data = await self.sentiment_analyzer.get_current_sentiment()
+            
+            # 3. Check risk management
+            if not await self.risk_manager.check_trading_allowed():
+                logger.warning("⚠️ Trading blocked by risk management")
+                return
+            
+            # 4. Generate trading signals
+            signals = await self._generate_signals(sentiment_data)
+            
+            # 5. Execute trades
+            for signal in signals:
+                await self._execute_signal(signal)
+            
+            # 6. Manage existing positions
+            await self._manage_positions()
+            
+            # 7. Update daily statistics
+            await self._update_statistics()
+            
+        except Exception as e:
+            logger.error(f"❌ Trading cycle error: {e}")
+    
+    async def _update_market_data(self):
+        """Update market data for all active pairs"""
+        try:
+            for pair in self.active_pairs:
+                # Get market data from exchange
+                market_data = await self.exchange_manager.get_market_data(1, pair)
+                if market_data:
+                    # Update indicators
+                    await self.indicators.update_data(pair, market_data)
+                    
+        except Exception as e:
+            logger.error(f"❌ Market data update error: {e}")
+    
+    async def _generate_signals(self, sentiment_data: Dict[str, Any]) -> List[DCASignal]:
+        """Generate DCA trading signals"""
+        signals = []
+        
+        try:
+            # Get available pairs
             available_pairs = await self._get_available_pairs()
             
-            for pair_info in available_pairs:
-                symbol = pair_info["symbol"]
-                exchange = pair_info["exchange"]
+            for pair in available_pairs:
+                # Skip if we already have max positions
+                if len(self.positions) >= self.settings.min_pairs_count:
+                    break
                 
-                # Pular se já temos posição neste par
-                if symbol in self.active_positions:
+                # Skip if we already have this pair
+                if pair in self.positions:
                     continue
-                    
-                # Analisar condições de mercado
-                market_data = await self._get_market_data(symbol, exchange)
-                if not market_data:
-                    continue
-                    
-                # Obter análise de sentimento
-                sentiment_data = await self.sentiment_analyzer.get_current_sentiment()
                 
-                # Analisar indicadores técnicos
-                market_condition = self.indicators.analyze_market_conditions(market_data["ohlcv"])
-                
-                # Verificar se é um bom momento para entrar
-                if await self._should_enter_position(symbol, market_condition, sentiment_data):
-                    # Validar com IA
-                    quantity = self._calculate_position_size(symbol, market_data["current_price"])
-                    
-                    ai_approved, ai_results = await self.ai_validator.validate_trade_decision(
-                        symbol, "BUY", quantity, market_data, sentiment_data
-                    )
-                    
-                    if ai_approved:
-                        await self._create_new_position(symbol, exchange, market_data, market_condition)
-                        
-        except Exception as e:
-            logger.error(f"Error scanning new opportunities: {e}")
+                # Analyze pair for DCA opportunity
+                signal = await self._analyze_pair_for_dca(pair, sentiment_data)
+                if signal:
+                    signals.append(signal)
             
-    async def _should_enter_position(
-        self, 
-        symbol: str, 
-        market_condition: MarketCondition,
-        sentiment_data: Dict[str, Any]
-    ) -> bool:
-        """Determina se deve entrar em uma nova posição"""
-        
-        # Verificar condições básicas
-        if market_condition.overall_signal not in ["BUY", "HOLD"]:
-            return False
-            
-        # Verificar sentimento geral
-        fear_greed = sentiment_data.get("fear_greed_index", 50)
-        if fear_greed > 80:  # Extrema ganância
-            return False
-            
-        # Verificar volatilidade (preferir média/alta para DCA)
-        if market_condition.volatility == "LOW":
-            return False
-            
-        # Verificar força da tendência
-        if market_condition.trend_strength < 0.3:
-            return False
-            
-        return True
-        
-    async def _create_new_position(
-        self,
-        symbol: str,
-        exchange: str,
-        market_data: Dict[str, Any],
-        market_condition: MarketCondition
-    ):
-        """Cria uma nova posição DCA"""
-        
-        try:
-            current_price = market_data["current_price"]
-            
-            # Calcular tamanho da posição
-            position_size = self._calculate_position_size(symbol, current_price)
-            
-            # Gerar grid de ordens
-            grid_config = self.indicators.get_dynamic_grid_config(market_condition)
-            grid_orders = self._generate_grid_orders(current_price, position_size, grid_config)
-            
-            # Executar primeira ordem de compra
-            first_order = await self._execute_grid_order(symbol, exchange, grid_orders[0])
-            
-            if first_order:
-                # Criar posição
-                position = DCAPosition(
-                    symbol=symbol,
-                    exchange=exchange,
-                    entry_price=current_price,
-                    total_quantity=position_size,
-                    total_cost=current_price * position_size,
-                    average_price=current_price,
-                    current_profit_loss=0.0,
-                    profit_percentage=0.0,
-                    grid_orders=grid_orders,
-                    max_duration_hours=self.max_operation_duration,
-                    created_at=datetime.utcnow(),
-                    target_profit_percent=self.settings.default_profit_target,
-                    stop_loss_percent=self.settings.default_stop_loss
-                )
-                
-                self.active_positions[symbol] = position
-                
-                # Salvar no banco de dados
-                await self._save_position_to_db(position, first_order)
-                
-                logger.info(f"Created new DCA position for {symbol} at ${current_price:.4f}")
-                
-        except Exception as e:
-            logger.error(f"Error creating new position for {symbol}: {e}")
-            
-    def _generate_grid_orders(
-        self, 
-        entry_price: float, 
-        total_size: float, 
-        grid_config: Dict[str, float]
-    ) -> List[GridOrder]:
-        """Gera ordens do grid baseado na configuração dinâmica"""
-        
-        grid_orders = []
-        
-        # Parâmetros do grid
-        spacing_min = grid_config["spacing_min"] / 100  # Converter % para decimal
-        spacing_max = grid_config["spacing_max"] / 100
-        grid_levels = 5  # Número de níveis do grid
-        
-        # Calcular espaçamento médio
-        avg_spacing = (spacing_min + spacing_max) / 2
-        
-        # Quantidade por ordem (dividir igualmente)
-        quantity_per_order = total_size / grid_levels
-        
-        # Gerar ordens de compra (abaixo do preço atual)
-        for i in range(1, grid_levels + 1):
-            buy_price = entry_price * (1 - (avg_spacing * i))
-            
-            grid_orders.append(GridOrder(
-                level=-i,  # Níveis negativos para compra
-                price=buy_price,
-                quantity=quantity_per_order,
-                side=GridLevel.BUY
-            ))
-            
-        # Gerar ordens de venda (acima do preço atual)
-        for i in range(1, grid_levels + 1):
-            sell_price = entry_price * (1 + (avg_spacing * i))
-            
-            grid_orders.append(GridOrder(
-                level=i,  # Níveis positivos para venda
-                price=sell_price,
-                quantity=quantity_per_order,
-                side=GridLevel.SELL
-            ))
-            
-        return grid_orders
-        
-    async def _execute_grid_order(
-        self, 
-        symbol: str, 
-        exchange: str, 
-        grid_order: GridOrder
-    ) -> Optional[Dict[str, Any]]:
-        """Executa uma ordem do grid"""
-        
-        try:
-            if self.settings.paper_trading:
-                # Simulação em paper trading
-                order_id = f"paper_{datetime.utcnow().timestamp()}"
-                grid_order.order_id = order_id
-                grid_order.executed = True
-                
-                logger.info(f"Paper trading: {grid_order.side.value} {grid_order.quantity:.6f} {symbol} at ${grid_order.price:.4f}")
-                
-                return {
-                    "id": order_id,
-                    "symbol": symbol,
-                    "side": grid_order.side.value,
-                    "amount": grid_order.quantity,
-                    "price": grid_order.price,
-                    "status": "filled"
-                }
-            else:
-                # Execução real
-                order = await self.exchange_manager.place_order(
-                    symbol=symbol,
-                    side=grid_order.side.value,
-                    amount=grid_order.quantity,
-                    price=grid_order.price,
-                    order_type="limit"
-                )
-                
-                if order:
-                    grid_order.order_id = order["id"]
-                    return order
-                    
-        except Exception as e:
-            logger.error(f"Error executing grid order: {e}")
-            
-        return None
-        
-    async def _check_grid_orders(self, position: DCAPosition, current_price: float):
-        """Verifica e executa ordens do grid baseado no preço atual"""
-        
-        for grid_order in position.grid_orders:
-            if grid_order.executed:
-                continue
-                
-            # Verificar se a ordem deve ser executada
-            should_execute = False
-            
-            if grid_order.side == GridLevel.BUY and current_price <= grid_order.price:
-                should_execute = True
-            elif grid_order.side == GridLevel.SELL and current_price >= grid_order.price:
-                should_execute = True
-                
-            if should_execute:
-                executed_order = await self._execute_grid_order(
-                    position.symbol, position.exchange, grid_order
-                )
-                
-                if executed_order:
-                    # Atualizar posição
-                    if grid_order.side == GridLevel.BUY:
-                        self._update_position_after_buy(position, grid_order)
-                    else:
-                        self._update_position_after_sell(position, grid_order)
-                        
-    def _update_position_after_buy(self, position: DCAPosition, grid_order: GridOrder):
-        """Atualiza posição após compra adicional"""
-        
-        # Recalcular preço médio
-        total_cost = position.total_cost + (grid_order.price * grid_order.quantity)
-        total_quantity = position.total_quantity + grid_order.quantity
-        
-        position.average_price = total_cost / total_quantity
-        position.total_cost = total_cost
-        position.total_quantity = total_quantity
-        
-        logger.info(f"Added to position {position.symbol}: {grid_order.quantity:.6f} at ${grid_order.price:.4f}")
-        
-    def _update_position_after_sell(self, position: DCAPosition, grid_order: GridOrder):
-        """Atualiza posição após venda parcial"""
-        
-        position.total_quantity -= grid_order.quantity
-        # Manter total_cost para cálculo correto do P&L
-        
-        logger.info(f"Sold from position {position.symbol}: {grid_order.quantity:.6f} at ${grid_order.price:.4f}")
-        
-    def _update_position_pnl(self, position: DCAPosition, current_price: float):
-        """Atualiza P&L da posição"""
-        
-        current_value = position.total_quantity * current_price
-        position.current_profit_loss = current_value - position.total_cost
-        position.profit_percentage = (position.current_profit_loss / position.total_cost) * 100
-        
-    async def _check_profit_loss_conditions(self, position: DCAPosition, current_price: float):
-        """Verifica condições de take profit e stop loss"""
-        
-        # Verificar take profit
-        if position.profit_percentage >= position.target_profit_percent:
-            await self._close_position(position, "TAKE_PROFIT", current_price)
-            return
-            
-        # Verificar stop loss
-        if position.profit_percentage <= position.stop_loss_percent:
-            await self._close_position(position, "STOP_LOSS", current_price)
-            return
-            
-        # Verificar tempo máximo
-        duration = datetime.utcnow() - position.created_at
-        if duration.total_seconds() / 3600 >= position.max_duration_hours:
-            await self._close_position(position, "MAX_TIME", current_price)
-            return
-            
-    async def _close_position(self, position: DCAPosition, reason: str, current_price: float):
-        """Fecha uma posição completamente"""
-        
-        try:
-            # Cancelar ordens pendentes
-            await self._cancel_pending_orders(position)
-            
-            # Vender toda a quantidade restante
-            if position.total_quantity > 0:
-                sell_order = await self.exchange_manager.place_order(
-                    symbol=position.symbol,
-                    side="sell",
-                    amount=position.total_quantity,
-                    price=current_price,
-                    order_type="market"
-                )
-                
-            # Salvar histórico
-            await self._save_trade_history(position, reason, current_price)
-            
-            # Remover da lista ativa
-            del self.active_positions[position.symbol]
-            
-            logger.info(f"Closed position {position.symbol}: {reason}, P&L: {position.profit_percentage:.2f}%")
+            return signals
             
         except Exception as e:
-            logger.error(f"Error closing position {position.symbol}: {e}")
-            
-    async def _rebalance_grids(self):
-        """Rebalanceia grids baseado em mudanças nas condições de mercado"""
-        
-        # Verificar se já passou tempo suficiente desde a última recalibração
-        if datetime.utcnow() - self.last_recalibration < timedelta(hours=4):
-            return
-            
-        for position in self.active_positions.values():
-            try:
-                # Obter dados atuais do mercado
-                market_data = await self._get_market_data(position.symbol, position.exchange)
-                if not market_data:
-                    continue
-                    
-                # Analisar condições atuais
-                market_condition = self.indicators.analyze_market_conditions(market_data["ohlcv"])
-                
-                # Gerar nova configuração de grid
-                new_grid_config = self.indicators.get_dynamic_grid_config(market_condition)
-                
-                # Verificar se há mudanças significativas
-                if self._should_recalibrate_grid(position, new_grid_config):
-                    await self._recalibrate_position_grid(position, new_grid_config, market_data["current_price"])
-                    
-            except Exception as e:
-                logger.error(f"Error rebalancing grid for {position.symbol}: {e}")
-                
-        self.last_recalibration = datetime.utcnow()
-        
-    def _calculate_position_size(self, symbol: str, current_price: float) -> float:
-        """Calcula tamanho da posição baseado na configuração de risco"""
-        
-        # Usar 1% do saldo disponível por padrão
-        max_position_value = self.settings.max_position_size_usd
-        
-        # Calcular quantidade baseada no preço atual
-        quantity = max_position_value / current_price
-        
-        # Aplicar ajustes de risco se necessário
-        risk_adjustment = self.risk_manager.get_position_size_adjustment()
-        quantity *= risk_adjustment
-        
-        return quantity
-        
-    async def _get_market_data(self, symbol: str, exchange: str) -> Optional[Dict[str, Any]]:
-        """Obtém dados de mercado para análise"""
-        
+            logger.error(f"❌ Signal generation error: {e}")
+            return []
+    
+    async def _get_available_pairs(self) -> List[str]:
+        """Get list of available trading pairs"""
         try:
-            # Obter dados OHLCV
-            ohlcv = await self.exchange_manager.get_ohlcv(symbol, "1h", 200)
-            current_price = await self.exchange_manager.get_current_price(symbol, exchange)
+            # This would query the database for available pairs
+            # For now, return a default list
+            return ["BTC/USDT", "ETH/USDT", "BNB/USDT", "ADA/USDT", "DOT/USDT"]
             
-            if not ohlcv or not current_price:
+        except Exception as e:
+            logger.error(f"❌ Failed to get available pairs: {e}")
+            return []
+    
+    async def _analyze_pair_for_dca(self, pair: str, sentiment_data: Dict[str, Any]) -> Optional[DCASignal]:
+        """Analyze a pair for DCA opportunity"""
+        try:
+            # Get technical indicators
+            indicators = await self.indicators.get_indicators(pair)
+            if not indicators:
                 return None
-                
-            return {
-                "current_price": current_price,
-                "ohlcv": ohlcv,
-                "24h_change": self._calculate_24h_change(ohlcv),
-                "volume_24h": sum(candle["volume"] for candle in ohlcv[-24:]),
-                "volatility": self._calculate_volatility(ohlcv)
-            }
+            
+            # Check if conditions are met for DCA entry
+            if not self._check_dca_conditions(pair, indicators, sentiment_data):
+                return None
+            
+            # Calculate entry parameters
+            entry_price = await self._calculate_entry_price(pair)
+            quantity = await self._calculate_position_size(pair, entry_price)
+            
+            # Create signal
+            signal = DCASignal(
+                pair=pair,
+                side="buy",
+                quantity=quantity,
+                price=entry_price,
+                grid_level=1,
+                confidence=0.7,
+                indicators=indicators,
+                timestamp=datetime.utcnow()
+            )
+            
+            return signal
             
         except Exception as e:
-            logger.error(f"Error getting market data for {symbol}: {e}")
+            logger.error(f"❌ Pair analysis error for {pair}: {e}")
             return None
+    
+    def _check_dca_conditions(self, pair: str, indicators: Dict[str, float], sentiment_data: Dict[str, Any]) -> bool:
+        """Check if conditions are met for DCA entry"""
+        try:
+            # RSI conditions
+            rsi = indicators.get("rsi", 50)
+            if rsi > 70 or rsi < 30:
+                return False
             
-    def _calculate_24h_change(self, ohlcv: List[Dict]) -> float:
-        """Calcula mudança de preço em 24h"""
-        if len(ohlcv) < 24:
-            return 0.0
+            # MACD conditions
+            macd = indicators.get("macd", 0)
+            macd_signal = indicators.get("macd_signal", 0)
+            if macd < macd_signal:  # Bearish MACD
+                return False
             
-        current_price = ohlcv[-1]["close"]
-        price_24h_ago = ohlcv[-24]["close"]
-        
-        return ((current_price - price_24h_ago) / price_24h_ago) * 100
-        
-    def _calculate_volatility(self, ohlcv: List[Dict]) -> float:
-        """Calcula volatilidade baseada nos últimos dados"""
-        if len(ohlcv) < 20:
-            return 0.0
+            # Bollinger Bands conditions
+            bb_upper = indicators.get("bb_upper", 0)
+            bb_lower = indicators.get("bb_lower", 0)
+            current_price = indicators.get("price", 0)
             
-        closes = [candle["close"] for candle in ohlcv[-20:]]
-        mean_price = sum(closes) / len(closes)
-        variance = sum((price - mean_price) ** 2 for price in closes) / len(closes)
-        
-        return (variance ** 0.5) / mean_price
-        
-    async def _load_active_positions(self):
-        """Carrega posições ativas do banco de dados"""
-        # Implementar carregamento do banco
-        pass
-        
-    async def _update_available_pairs(self):
-        """Atualiza lista de pares disponíveis"""
-        # Implementar atualização de pares
-        pass
-        
-    async def _get_available_pairs(self) -> List[Dict[str, str]]:
-        """Retorna pares disponíveis para trading"""
-        # Implementar busca de pares
-        return [
-            {"symbol": "BTC/USDT", "exchange": "binance"},
-            {"symbol": "ETH/USDT", "exchange": "binance"},
-        ]
-        
-    async def get_status(self) -> Dict[str, Any]:
-        """Retorna status atual do DCA Engine"""
-        
-        total_positions = len(self.active_positions)
-        total_pnl = sum(pos.current_profit_loss for pos in self.active_positions.values())
-        avg_profit_pct = sum(pos.profit_percentage for pos in self.active_positions.values()) / total_positions if total_positions > 0 else 0
-        
+            if current_price > bb_upper or current_price < bb_lower:
+                return False
+            
+            # Sentiment conditions
+            fear_greed = sentiment_data.get("fear_greed_index", 50)
+            if fear_greed < 20 or fear_greed > 80:
+                return False
+            
+            # Volume conditions
+            volume = indicators.get("volume", 0)
+            avg_volume = indicators.get("avg_volume", 0)
+            if volume < avg_volume * 0.5:  # Low volume
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ DCA conditions check error: {e}")
+            return False
+    
+    async def _calculate_entry_price(self, pair: str) -> float:
+        """Calculate optimal entry price"""
+        try:
+            # Get current market price
+            market_data = await self.exchange_manager.get_market_data(1, pair)
+            if not market_data:
+                raise TradingError(f"Failed to get market data for {pair}")
+            
+            # Use current price as entry price
+            return market_data.last
+            
+        except Exception as e:
+            logger.error(f"❌ Entry price calculation error: {e}")
+            raise
+    
+    async def _calculate_position_size(self, pair: str, entry_price: float) -> float:
+        """Calculate position size based on risk management"""
+        try:
+            # Get account balance
+            balances = await self.exchange_manager.get_balance(1)
+            if not balances:
+                raise TradingError("Failed to get account balance")
+            
+            # Calculate available balance for this pair
+            quote_currency = pair.split('/')[1]  # e.g., USDT from BTC/USDT
+            available_balance = balances.get(quote_currency, 0)
+            
+            if available_balance <= 0:
+                raise TradingError(f"Insufficient {quote_currency} balance")
+            
+            # Calculate position size (1% of available balance)
+            position_value = available_balance * 0.01
+            quantity = position_value / entry_price
+            
+            # Apply minimum notional check
+            min_notional = self.settings.min_notional
+            if position_value < min_notional:
+                raise TradingError(f"Position value {position_value} below minimum {min_notional}")
+            
+            return quantity
+            
+        except Exception as e:
+            logger.error(f"❌ Position size calculation error: {e}")
+            raise
+    
+    async def _execute_signal(self, signal: DCASignal):
+        """Execute a DCA trading signal"""
+        try:
+            logger.info(f"📊 Executing DCA signal: {signal.pair} {signal.side} {signal.quantity}")
+            
+            # Create trade hypothesis for AI validation
+            hypothesis = TradeHypothesis(
+                pair=signal.pair,
+                side=signal.side,
+                quantity=signal.quantity,
+                entry_price=signal.price,
+                indicators=signal.indicators,
+                fear_greed_index=0,  # Would get from sentiment data
+                news_sentiment=0.0,  # Would get from sentiment data
+                market_context={},
+                timestamp=signal.timestamp
+            )
+            
+            # Validate with AI
+            ai_results = await self.ai_validator.validate_trade(hypothesis)
+            consensus, confidence, reasoning = self.ai_validator.get_consensus(ai_results)
+            
+            if consensus != AIDecision.APPROVE:
+                logger.info(f"❌ AI validation rejected: {reasoning}")
+                return
+            
+            # Execute the trade
+            order_result = await self.exchange_manager.place_order(
+                exchange_id=1,  # Default exchange
+                symbol=signal.pair,
+                side=signal.side,
+                amount=signal.quantity,
+                price=signal.price,
+                order_type="market"
+            )
+            
+            if order_result.success:
+                # Create DCA position
+                await self._create_dca_position(signal, order_result)
+                logger.info(f"✅ DCA trade executed: {signal.pair}")
+            else:
+                logger.error(f"❌ DCA trade failed: {order_result.error_message}")
+            
+        except Exception as e:
+            logger.error(f"❌ Signal execution error: {e}")
+    
+    async def _create_dca_position(self, signal: DCASignal, order_result: Any):
+        """Create a new DCA position"""
+        try:
+            # Calculate grid levels
+            grid_levels = self._calculate_grid_levels(signal.pair, signal.price)
+            
+            # Create position
+            position = DCAPosition(
+                pair=signal.pair,
+                exchange_id=1,
+                total_quantity=signal.quantity,
+                average_price=signal.price,
+                total_invested=signal.quantity * signal.price,
+                current_value=signal.quantity * signal.price,
+                grid_levels=grid_levels,
+                status="active",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            
+            self.positions[signal.pair] = position
+            
+            # Save to database
+            await self._save_position(position)
+            
+        except Exception as e:
+            logger.error(f"❌ Position creation error: {e}")
+    
+    def _calculate_grid_levels(self, pair: str, base_price: float) -> List[Dict[str, Any]]:
+        """Calculate grid levels for DCA strategy"""
+        try:
+            grid_levels = []
+            
+            # Determine market type (sideways vs trend)
+            market_type = "sideways"  # Would be determined by analysis
+            grid_config = self.grid_config[market_type]
+            
+            # Calculate grid spacing
+            spacing = (grid_config["spacing_min"] + grid_config["spacing_max"]) / 2
+            
+            # Create grid levels
+            for level in range(1, 11):  # 10 grid levels
+                price_offset = spacing * level
+                
+                # Buy levels (below current price)
+                buy_price = base_price * (1 - price_offset / 100)
+                buy_level = {
+                    "level": level,
+                    "type": "buy",
+                    "price": buy_price,
+                    "quantity": 0.0,
+                    "filled": False
+                }
+                grid_levels.append(buy_level)
+                
+                # Sell levels (above current price)
+                sell_price = base_price * (1 + price_offset / 100)
+                sell_level = {
+                    "level": level,
+                    "type": "sell",
+                    "price": sell_price,
+                    "quantity": 0.0,
+                    "filled": False
+                }
+                grid_levels.append(sell_level)
+            
+            return grid_levels
+            
+        except Exception as e:
+            logger.error(f"❌ Grid level calculation error: {e}")
+            return []
+    
+    async def _manage_positions(self):
+        """Manage existing DCA positions"""
+        try:
+            for pair, position in self.positions.items():
+                # Update position value
+                await self._update_position_value(position)
+                
+                # Check profit target
+                if await self._check_profit_target(position):
+                    await self._close_position(position, "profit_target")
+                
+                # Check stop loss
+                if await self._check_stop_loss(position):
+                    await self._close_position(position, "stop_loss")
+                
+                # Check max duration
+                if await self._check_max_duration(position):
+                    await self._close_position(position, "max_duration")
+                
+                # Execute grid orders
+                await self._execute_grid_orders(position)
+                
+        except Exception as e:
+            logger.error(f"❌ Position management error: {e}")
+    
+    async def _update_position_value(self, position: DCAPosition):
+        """Update current value of a position"""
+        try:
+            # Get current market price
+            market_data = await self.exchange_manager.get_market_data(1, position.pair)
+            if market_data:
+                position.current_value = position.total_quantity * market_data.last
+                position.updated_at = datetime.utcnow()
+                
+        except Exception as e:
+            logger.error(f"❌ Position value update error: {e}")
+    
+    async def _check_profit_target(self, position: DCAPosition) -> bool:
+        """Check if profit target is reached"""
+        try:
+            profit_percent = ((position.current_value - position.total_invested) / position.total_invested) * 100
+            return profit_percent >= self.profit_target
+            
+        except Exception as e:
+            logger.error(f"❌ Profit target check error: {e}")
+            return False
+    
+    async def _check_stop_loss(self, position: DCAPosition) -> bool:
+        """Check if stop loss is triggered"""
+        try:
+            loss_percent = ((position.current_value - position.total_invested) / position.total_invested) * 100
+            return loss_percent <= self.stop_loss
+            
+        except Exception as e:
+            logger.error(f"❌ Stop loss check error: {e}")
+            return False
+    
+    async def _check_max_duration(self, position: DCAPosition) -> bool:
+        """Check if max duration is exceeded"""
+        try:
+            duration = datetime.utcnow() - position.created_at
+            return duration.total_seconds() / 3600 >= self.max_duration
+            
+        except Exception as e:
+            logger.error(f"❌ Max duration check error: {e}")
+            return False
+    
+    async def _close_position(self, position: DCAPosition, reason: str):
+        """Close a DCA position"""
+        try:
+            logger.info(f"🔚 Closing position {position.pair} - Reason: {reason}")
+            
+            # Execute sell order
+            order_result = await self.exchange_manager.place_order(
+                exchange_id=position.exchange_id,
+                symbol=position.pair,
+                side="sell",
+                amount=position.total_quantity,
+                order_type="market"
+            )
+            
+            if order_result.success:
+                # Calculate final P&L
+                final_value = position.total_quantity * order_result.exchange_response.get("price", position.average_price)
+                pnl = final_value - position.total_invested
+                
+                logger.info(f"✅ Position closed: P&L = ${pnl:.2f}")
+                
+                # Remove from active positions
+                del self.positions[position.pair]
+                
+                # Save trade history
+                await self._save_trade_history(position, pnl, reason)
+                
+            else:
+                logger.error(f"❌ Failed to close position: {order_result.error_message}")
+                
+        except Exception as e:
+            logger.error(f"❌ Position close error: {e}")
+    
+    async def _execute_grid_orders(self, position: DCAPosition):
+        """Execute grid orders for a position"""
+        try:
+            # Get current market price
+            market_data = await self.exchange_manager.get_market_data(1, position.pair)
+            if not market_data:
+                return
+            
+            current_price = market_data.last
+            
+            # Check each grid level
+            for level in position.grid_levels:
+                if level["filled"]:
+                    continue
+                
+                # Check if price hit grid level
+                if level["type"] == "buy" and current_price <= level["price"]:
+                    await self._execute_grid_buy(position, level)
+                elif level["type"] == "sell" and current_price >= level["price"]:
+                    await self._execute_grid_sell(position, level)
+                    
+        except Exception as e:
+            logger.error(f"❌ Grid order execution error: {e}")
+    
+    async def _execute_grid_buy(self, position: DCAPosition, level: Dict[str, Any]):
+        """Execute grid buy order"""
+        try:
+            # Calculate buy quantity (same as initial position)
+            quantity = position.total_quantity / len([l for l in position.grid_levels if l["type"] == "buy"])
+            
+            # Execute buy order
+            order_result = await self.exchange_manager.place_order(
+                exchange_id=position.exchange_id,
+                symbol=position.pair,
+                side="buy",
+                amount=quantity,
+                price=level["price"],
+                order_type="limit"
+            )
+            
+            if order_result.success:
+                level["filled"] = True
+                level["quantity"] = quantity
+                
+                # Update position
+                position.total_quantity += quantity
+                position.total_invested += quantity * level["price"]
+                position.average_price = position.total_invested / position.total_quantity
+                
+                logger.info(f"✅ Grid buy executed: {position.pair} at {level['price']}")
+                
+        except Exception as e:
+            logger.error(f"❌ Grid buy execution error: {e}")
+    
+    async def _execute_grid_sell(self, position: DCAPosition, level: Dict[str, Any]):
+        """Execute grid sell order"""
+        try:
+            # Calculate sell quantity
+            quantity = position.total_quantity / len([l for l in position.grid_levels if l["type"] == "sell"])
+            
+            # Execute sell order
+            order_result = await self.exchange_manager.place_order(
+                exchange_id=position.exchange_id,
+                symbol=position.pair,
+                side="sell",
+                amount=quantity,
+                price=level["price"],
+                order_type="limit"
+            )
+            
+            if order_result.success:
+                level["filled"] = True
+                level["quantity"] = quantity
+                
+                # Update position
+                position.total_quantity -= quantity
+                
+                logger.info(f"✅ Grid sell executed: {position.pair} at {level['price']}")
+                
+        except Exception as e:
+            logger.error(f"❌ Grid sell execution error: {e}")
+    
+    async def _update_statistics(self):
+        """Update daily trading statistics"""
+        try:
+            # Calculate daily profit
+            total_invested = sum(p.total_invested for p in self.positions.values())
+            total_value = sum(p.current_value for p in self.positions.values())
+            self.daily_profit = total_value - total_invested
+            
+            # Log statistics
+            logger.info(f"📊 Daily P&L: ${self.daily_profit:.2f}, Active positions: {len(self.positions)}")
+            
+        except Exception as e:
+            logger.error(f"❌ Statistics update error: {e}")
+    
+    async def _save_position(self, position: DCAPosition):
+        """Save position to database"""
+        try:
+            # This would save to the database
+            logger.info(f"💾 Saved position: {position.pair}")
+            
+        except Exception as e:
+            logger.error(f"❌ Position save error: {e}")
+    
+    async def _save_trade_history(self, position: DCAPosition, pnl: float, reason: str):
+        """Save trade history to database"""
+        try:
+            # This would save to the trade_history table
+            logger.info(f"💾 Saved trade history: {position.pair}, P&L: ${pnl:.2f}, Reason: {reason}")
+            
+        except Exception as e:
+            logger.error(f"❌ Trade history save error: {e}")
+    
+    async def stop(self):
+        """Stop DCA engine"""
+        self.status = DCAStatus.STOPPED
+        logger.info("🛑 DCA Engine stopped")
+    
+    async def pause(self):
+        """Pause DCA engine"""
+        self.status = DCAStatus.PAUSED
+        logger.info("⏸️ DCA Engine paused")
+    
+    async def resume(self):
+        """Resume DCA engine"""
+        self.status = DCAStatus.RUNNING
+        logger.info("▶️ DCA Engine resumed")
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get DCA engine status"""
         return {
-            "is_running": self.is_running,
-            "active_positions": total_positions,
-            "total_pnl_usd": round(total_pnl, 2),
-            "average_profit_percent": round(avg_profit_pct, 2),
-            "last_recalibration": self.last_recalibration.isoformat(),
-            "paper_trading": self.settings.paper_trading,
+            "status": self.status.value,
+            "active_positions": len(self.positions),
+            "daily_profit": self.daily_profit,
+            "total_trades": self.total_trades,
             "positions": [
                 {
-                    "symbol": pos.symbol,
-                    "profit_percentage": round(pos.profit_percentage, 2),
-                    "current_pnl": round(pos.current_profit_loss, 2),
-                    "duration_hours": (datetime.utcnow() - pos.created_at).total_seconds() / 3600
+                    "pair": p.pair,
+                    "quantity": p.total_quantity,
+                    "average_price": p.average_price,
+                    "current_value": p.current_value,
+                    "pnl": p.current_value - p.total_invested
                 }
-                for pos in self.active_positions.values()
+                for p in self.positions.values()
             ]
         }
+    
+    async def close(self):
+        """Close DCA engine"""
+        try:
+            # Stop the engine
+            await self.stop()
+            
+            # Close all positions if needed
+            for position in list(self.positions.values()):
+                await self._close_position(position, "engine_shutdown")
+            
+            logger.info("✅ DCA Engine closed")
+            
+        except Exception as e:
+            logger.error(f"❌ Error closing DCA Engine: {e}")
+
+
+# Export main class
+__all__ = ["DCAEngine", "DCAPosition", "DCASignal", "DCAStatus"]

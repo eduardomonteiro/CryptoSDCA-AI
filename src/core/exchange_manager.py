@@ -28,6 +28,7 @@ from src.config import get_settings
 from src.database import async_db_session
 from src.models import Exchange, Order, TradingPair, OrderStatus, OrderSide, OrderType, ExchangeStatus
 from src.exceptions import CryptoBotException
+from sqlalchemy import text
 
 
 class ExchangeError(CryptoBotException):
@@ -359,10 +360,13 @@ class ExchangeManager:
 
     async def _load_exchange_configs(self):
         """Load exchange configurations from database"""
-        async with async_db_session() as db:
+        from src.database import get_db_session
+        
+        db = get_db_session()
+        try:
             # Get all active exchanges
-            exchanges = await db.execute(
-                "SELECT * FROM exchanges WHERE is_active = 1"
+            exchanges = db.execute(
+                text("SELECT * FROM exchanges WHERE is_active = 1")
             )
             exchange_configs = exchanges.fetchall()
 
@@ -372,6 +376,8 @@ class ExchangeManager:
                 self.connectors[exchange.id] = connector
 
                 logger.info(f"📋 Loaded configuration for {exchange.display_name}")
+        finally:
+            db.close()
 
     async def _initialize_connector(self, exchange_id: int, connector: ExchangeConnector) -> bool:
         """Initialize a single connector"""
@@ -379,11 +385,17 @@ class ExchangeManager:
             await connector.initialize()
 
             # Update database status
-            async with async_db_session() as db:
-                await db.execute(
-                    "UPDATE exchanges SET status = ?, last_connected = ? WHERE id = ?",
-                    (ExchangeStatus.CONNECTED.value, datetime.utcnow(), exchange_id)
+            from src.database import get_db_session
+            
+            db = get_db_session()
+            try:
+                db.execute(
+                    text("UPDATE exchanges SET status = :status, last_connected = :last_connected WHERE id = :id"),
+                    {"status": ExchangeStatus.CONNECTED.value, "last_connected": datetime.utcnow(), "id": exchange_id}
                 )
+                db.commit()
+            finally:
+                db.close()
 
             return True
 
@@ -391,11 +403,17 @@ class ExchangeManager:
             logger.error(f"❌ Failed to initialize exchange {exchange_id}: {e}")
 
             # Update database status
-            async with async_db_session() as db:
-                await db.execute(
-                    "UPDATE exchanges SET status = ? WHERE id = ?",
-                    (ExchangeStatus.ERROR.value, exchange_id)
+            from src.database import get_db_session
+            
+            db = get_db_session()
+            try:
+                db.execute(
+                    text("UPDATE exchanges SET status = :status WHERE id = :id"),
+                    {"status": ExchangeStatus.ERROR.value, "id": exchange_id}
                 )
+                db.commit()
+            finally:
+                db.close()
 
             return False
 

@@ -85,9 +85,53 @@ class User(Base):
     exchanges = relationship("Exchange", back_populates="user")
     ai_agents = relationship("AIAgent", back_populates="user")
     trade_history = relationship("TradeHistory", back_populates="user")
+    trades = relationship("Trade", back_populates="user")
+    trading_sessions = relationship("TradingSession", back_populates="user")
 
     def __repr__(self):
         return f"<User(username='{self.username}', is_admin={self.is_admin})>"
+
+
+class UserSettings(Base):
+    """User-specific settings and preferences"""
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Trading preferences
+    default_profit_target = Column(Float, default=5.0)
+    default_stop_loss = Column(Float, default=-3.0)
+    max_position_size = Column(Float, default=10.0)
+    preferred_pairs = Column(JSON, nullable=True)  # List of preferred trading pairs
+    
+    # Notification settings
+    notification_email = Column(Boolean, default=True)
+    notification_telegram = Column(Boolean, default=False)
+    telegram_chat_id = Column(String(100), nullable=True)
+    
+    # Risk management
+    max_daily_loss = Column(Float, default=100.0)
+    max_portfolio_exposure = Column(Float, default=50.0)
+    
+    # UI preferences
+    theme = Column(String(20), default="light")  # light, dark
+    language = Column(String(10), default="en")
+    timezone = Column(String(50), default="UTC")
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="settings")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', name='unique_user_settings'),
+        Index('idx_user_settings_user', 'user_id'),
+    )
+
+    def __repr__(self):
+        return f"<UserSettings(user_id={self.user_id})>"
 
 
 # =============================================================================
@@ -121,6 +165,7 @@ class Exchange(Base):
     user = relationship("User", back_populates="exchanges")
     trading_pairs = relationship("TradingPair", back_populates="exchange")
     orders = relationship("Order", back_populates="exchange")
+    trades = relationship("Trade", back_populates="exchange")
 
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='unique_user_exchange'),
@@ -161,6 +206,7 @@ class AIAgent(Base):
     # Relationships
     user = relationship("User", back_populates="ai_agents")
     ai_decisions = relationship("TradeDecision", back_populates="ai_agent")
+    validation_logs = relationship("AIValidationLog", back_populates="ai_agent")
 
     __table_args__ = (
         Index('idx_ai_agent_user_type', 'user_id', 'agent_type'),
@@ -184,6 +230,7 @@ class TradingPair(Base):
     base_asset = Column(String(10), nullable=False)  # BTC
     quote_asset = Column(String(10), nullable=False)  # USDT
     status = Column(Enum(TradingPairStatus), default=TradingPairStatus.ACTIVE)
+    is_active = Column(Boolean, default=True)
 
     # DCA Configuration
     target_profit_percent = Column(Float, default=1.0)
@@ -210,6 +257,7 @@ class TradingPair(Base):
     exchange = relationship("Exchange", back_populates="trading_pairs")
     orders = relationship("Order", back_populates="trading_pair")
     trade_decisions = relationship("TradeDecision", back_populates="trading_pair")
+    trades = relationship("Trade", back_populates="trading_pair")
 
     __table_args__ = (
         UniqueConstraint('exchange_id', 'symbol', name='unique_exchange_symbol'),
@@ -373,6 +421,77 @@ class TradeHistory(Base):
         return f"<TradeHistory(symbol='{self.symbol}', side='{self.side}', profit_loss={self.profit_loss})>"
 
 
+class OperationLog(Base):
+    """System operation logs"""
+    __tablename__ = "operation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=func.now())
+    level = Column(String(20), nullable=False)  # INFO, WARNING, ERROR, DEBUG
+    module = Column(String(100), nullable=False)
+    message = Column(Text, nullable=False)
+    details = Column(JSON, nullable=True)
+    stack_trace = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('idx_log_timestamp', 'timestamp'),
+        Index('idx_log_level', 'level'),
+        Index('idx_log_module', 'module'),
+    )
+
+    def __repr__(self):
+        return f"<OperationLog(level='{self.level}', module='{self.module}', timestamp={self.timestamp})>"
+
+
+class DCAOperation(Base):
+    """DCA (Dollar Cost Averaging) operations"""
+    __tablename__ = "dca_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    trading_pair_id = Column(Integer, ForeignKey("trading_pairs.id"), nullable=False)
+    
+    # Operation details
+    operation_type = Column(String(50), nullable=False)  # 'buy', 'sell', 'grid'
+    status = Column(String(20), default="pending")  # pending, active, completed, failed
+    side = Column(Enum(OrderSide), nullable=False)
+    
+    # Amounts
+    total_amount_usd = Column(Float, nullable=False)
+    quantity = Column(Float, nullable=False)
+    average_price = Column(Float, nullable=True)
+    
+    # Grid trading info
+    grid_levels = Column(Integer, default=1)
+    grid_spacing = Column(Float, nullable=True)
+    grid_width = Column(Float, nullable=True)
+    
+    # Performance
+    profit_loss = Column(Float, default=0.0)
+    profit_loss_percent = Column(Float, default=0.0)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Error handling
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+
+    # Relationships
+    user = relationship("User")
+    trading_pair = relationship("TradingPair")
+
+    __table_args__ = (
+        Index('idx_dca_user_status', 'user_id', 'status'),
+        Index('idx_dca_created', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f"<DCAOperation(type='{self.operation_type}', status='{self.status}', amount=${self.total_amount_usd})>"
+
+
 # =============================================================================
 # System Configuration Models
 # =============================================================================
@@ -382,22 +501,58 @@ class SystemSettings(Base):
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(100), unique=True, nullable=False, index=True)
-    value = Column(Text, nullable=True)
-    value_type = Column(String(20), default="string")  # string, int, float, bool, json
-    description = Column(Text, nullable=True)
-    category = Column(String(50), nullable=True)  # trading, indicators, risk, etc.
-    is_encrypted = Column(Boolean, default=False)
-
+    
+    # Trading configuration
+    default_profit_target = Column(Float, default=5.0)
+    default_stop_loss = Column(Float, default=-3.0)
+    max_portfolio_exposure = Column(Float, default=50.0)
+    max_daily_drawdown = Column(Float, default=10.0)
+    max_position_size = Column(Float, default=10.0)
+    min_pairs_count = Column(Integer, default=3)
+    max_pairs_count = Column(Integer, default=10)
+    max_operation_duration_hours = Column(Integer, default=24)
+    min_notional = Column(Float, default=10.0)
+    max_correlation = Column(Float, default=0.7)
+    var_limit = Column(Float, default=5.0)
+    volatility_limit = Column(Float, default=0.5)
+    
+    # Risk management
+    max_daily_loss_usd = Column(Float, default=100.0)
+    circuit_breaker_enabled = Column(Boolean, default=True)
+    circuit_breaker_threshold = Column(Float, default=5.0)
+    
+    # Technical indicators
+    rsi_period = Column(Integer, default=14)
+    rsi_oversold = Column(Integer, default=30)
+    rsi_overbought = Column(Integer, default=70)
+    macd_fast_period = Column(Integer, default=12)
+    macd_slow_period = Column(Integer, default=26)
+    macd_signal_period = Column(Integer, default=9)
+    bb_period = Column(Integer, default=20)
+    bb_std_dev = Column(Integer, default=2)
+    
+    # DCA configuration
+    grid_spacing_min = Column(Float, default=1.0)
+    grid_spacing_max = Column(Float, default=3.0)
+    grid_width_min = Column(Float, default=15.0)
+    grid_width_max = Column(Float, default=25.0)
+    
+    # AI configuration
+    ai_validation_required = Column(Boolean, default=True)
+    ai_consensus_required = Column(Boolean, default=True)
+    ai_timeout_seconds = Column(Integer, default=30)
+    
+    # System configuration
+    paper_trading = Column(Boolean, default=True)
+    test_mode = Column(Boolean, default=False)
+    debug_mode = Column(Boolean, default=True)
+    log_level = Column(String(20), default="INFO")
+    
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        Index('idx_settings_category', 'category'),
-    )
-
     def __repr__(self):
-        return f"<SystemSettings(key='{self.key}', category='{self.category}')>"
+        return f"<SystemSettings(id={self.id}, profit_target={self.default_profit_target})>"
 
 
 class NewsSource(Base):
@@ -502,19 +657,161 @@ class SystemHealth(Base):
         return f"<SystemHealth(timestamp={self.timestamp}, exchanges={self.exchanges_connected}/{self.exchanges_total})>"
 
 
-# Export function for database initialization
-def create_all_tables(engine):
-    """
-    Create all tables in the database
-    This function is called during database initialization
-    """
-    Base.metadata.create_all(bind=engine)
+# Add missing models after the existing ones
+
+class Trade(Base):
+    """Trade execution records"""
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    exchange_id = Column(Integer, ForeignKey("exchanges.id"), nullable=False)
+    trading_pair_id = Column(Integer, ForeignKey("trading_pairs.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("trading_sessions.id"), nullable=True)
+    
+    # Trade details
+    symbol = Column(String(20), nullable=False)
+    side = Column(Enum(OrderSide), nullable=False)
+    order_type = Column(Enum(OrderType), nullable=False)
+    quantity = Column(Float, nullable=False)
+    price = Column(Float, nullable=False)
+    total_cost = Column(Float, nullable=False)
+    fees = Column(Float, default=0.0)
+    fee_currency = Column(String(10), default="USDT")
+    
+    # Status and timing
+    status = Column(Enum(OrderStatus), default=OrderStatus.PENDING)
+    created_at = Column(DateTime, default=func.now())
+    executed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # AI validation
+    ai_validation_required = Column(Boolean, default=True)
+    ai_validation_passed = Column(Boolean, nullable=True)
+    ai_agents_used = Column(JSON, nullable=True)  # List of AI agents that validated
+    ai_consensus = Column(String(20), nullable=True)  # "YES", "NO", "SPLIT"
+    
+    # Market context
+    market_sentiment = Column(Float, nullable=True)
+    fear_greed_index = Column(Integer, nullable=True)
+    technical_indicators = Column(JSON, nullable=True)
+    
+    # Risk management
+    risk_score = Column(Float, nullable=True)
+    position_size_ratio = Column(Float, nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="trades")
+    exchange = relationship("Exchange", back_populates="trades")
+    trading_pair = relationship("TradingPair", back_populates="trades")
+    
+    __table_args__ = (
+        Index('idx_trade_user_status', 'user_id', 'status'),
+        Index('idx_trade_symbol_created', 'symbol', 'created_at'),
+        Index('idx_trade_ai_validation', 'ai_validation_passed'),
+    )
+
+    def __repr__(self):
+        return f"<Trade(symbol='{self.symbol}', side='{self.side}', status='{self.status}')>"
+
+
+class TradingSession(Base):
+    """Trading session management"""
+    __tablename__ = "trading_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Session details
+    session_name = Column(String(100), nullable=False)
+    status = Column(String(20), default="active")  # active, paused, stopped
+    start_time = Column(DateTime, default=func.now())
+    end_time = Column(DateTime, nullable=True)
+    
+    # Trading parameters
+    max_trades_per_session = Column(Integer, default=100)
+    min_interval_minutes = Column(Integer, default=5)  # 5-minute interval
+    max_daily_loss = Column(Float, default=100.0)
+    target_profit = Column(Float, default=5.0)
+    
+    # Statistics
+    total_trades = Column(Integer, default=0)
+    successful_trades = Column(Integer, default=0)
+    total_profit_loss = Column(Float, default=0.0)
+    
+    # Relationships
+    user = relationship("User", back_populates="trading_sessions")
+    trades = relationship("Trade", back_populates="session")
+    
+    __table_args__ = (
+        Index('idx_session_user_status', 'user_id', 'status'),
+    )
+
+    def __repr__(self):
+        return f"<TradingSession(name='{self.session_name}', status='{self.status}')>"
+
+
+class AIValidationLog(Base):
+    """AI validation logs for each trade"""
+    __tablename__ = "ai_validation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=False)
+    ai_agent_id = Column(Integer, ForeignKey("ai_agents.id"), nullable=False)
+    
+    # Validation details
+    validation_request = Column(JSON, nullable=False)  # Trade hypothesis sent to AI
+    validation_response = Column(JSON, nullable=False)  # AI response
+    decision = Column(String(10), nullable=False)  # "YES", "NO", "UNCERTAIN"
+    confidence_score = Column(Float, nullable=True)
+    reasoning = Column(Text, nullable=True)
+    
+    # Timing
+    request_time = Column(DateTime, default=func.now())
+    response_time = Column(DateTime, nullable=True)
+    processing_time_ms = Column(Integer, nullable=True)
+    
+    # Status
+    status = Column(String(20), default="pending")  # pending, completed, failed
+    error_message = Column(Text, nullable=True)
+    
+    # Relationships
+    trade = relationship("Trade", back_populates="ai_validations")
+    ai_agent = relationship("AIAgent", back_populates="validation_logs")
+    
+    __table_args__ = (
+        Index('idx_validation_trade_agent', 'trade_id', 'ai_agent_id'),
+        Index('idx_validation_decision', 'decision'),
+    )
+
+    def __repr__(self):
+        return f"<AIValidationLog(trade_id={self.trade_id}, agent_id={self.ai_agent_id}, decision='{self.decision}')>"
+
+
+# Update existing models to include relationships
+User.trades = relationship("Trade", back_populates="user")
+User.trading_sessions = relationship("TradingSession", back_populates="user")
+
+Exchange.trades = relationship("Trade", back_populates="exchange")
+TradingPair.trades = relationship("Trade", back_populates="trading_pair")
+
+TradingSession.trades = relationship("Trade", back_populates="session")
+Trade.session = relationship("TradingSession", back_populates="trades")
+Trade.ai_validations = relationship("AIValidationLog", back_populates="trade")
+
+AIAgent.validation_logs = relationship("AIValidationLog", back_populates="ai_agent")
+
+# Create all tables function for easy import
+def create_all_tables():
+    """Create all database tables"""
+    from src.database import sync_engine
+    Base.metadata.create_all(bind=sync_engine)
 
 
 # Export all models
 __all__ = [
-    "User", "Exchange", "AIAgent", "TradingPair", "Order", "TradeDecision",
-    "TradeHistory", "SystemSettings", "NewsSource", "MarketSentiment", 
+    "User", "UserSettings", "Exchange", "AIAgent", "TradingPair", "Order", "TradeDecision",
+    "TradeHistory", "OperationLog", "DCAOperation", "SystemSettings", "NewsSource", "MarketSentiment", 
     "SystemHealth", "OrderSide", "OrderType", "OrderStatus", 
-    "TradingPairStatus", "AIDecision", "ExchangeStatus", "create_all_tables"
+    "TradingPairStatus", "AIDecision", "ExchangeStatus", "Trade", "TradingSession", "AIValidationLog", "create_all_tables"
 ]
