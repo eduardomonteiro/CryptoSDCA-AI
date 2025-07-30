@@ -502,11 +502,13 @@ class SystemHealth(Base):
         return f"<SystemHealth(timestamp={self.timestamp}, exchanges={self.exchanges_connected}/{self.exchanges_total})>"
 
 
-# Create all tables function for easy import
-def create_all_tables():
-    """Create all database tables"""
-    from src.database import sync_engine
-    Base.metadata.create_all(bind=sync_engine)
+# Export function for database initialization
+def create_all_tables(engine):
+    """
+    Create all tables in the database
+    This function is called during database initialization
+    """
+    Base.metadata.create_all(bind=engine)
 
 
 # Export all models
