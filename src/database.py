@@ -1,5 +1,5 @@
 """
-src/core/database.py - Configuração do banco de dados SQLite/PostgreSQL
+src/database.py - Configuração do banco de dados SQLite/PostgreSQL
 Configurado para trabalhar com as novas configurações Pydantic v2
 """
 
@@ -19,7 +19,7 @@ from src.config import get_settings
 # Configurações
 settings = get_settings()
 
-# Base para todos os modelos SQLAlchemy
+# Base para todos os modelos SQLAlchemy - usar a mesma base em todo projeto
 Base = declarative_base()
 
 # Configuração do engine baseada no tipo de banco
@@ -59,13 +59,15 @@ else:
         echo=settings.debug
     )
 
-# Session factory
+# Session factory - exportar para uso direto
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
+# Engine síncrono para operações diretas
+sync_engine = engine
 
 def get_db() -> Generator[Session, None, None]:
     """
@@ -94,11 +96,10 @@ async def init_database() -> bool:
     """
     try:
         # Importar todos os modelos para garantir que sejam registrados
-        from src.models.manager import (
-            ExchangeKey, AIAgent, FundingWallet, 
-            BotSetting, IndicatorPreset
+        from src.models.models import (
+            User, Exchange, AIAgent, TradingPair, Order, TradeDecision,
+            TradeHistory, SystemSettings, NewsSource, MarketSentiment, SystemHealth
         )
-        from src.models.base import User  # Se existir
         
         logger.info("Creating database tables...")
         
@@ -106,7 +107,8 @@ async def init_database() -> bool:
         Base.metadata.create_all(bind=engine)
         
         # Verificar se as tabelas foram criadas
-        inspector = engine.inspect(engine)
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
         tables = inspector.get_table_names()
         
         logger.info(f"Database initialized with {len(tables)} tables: {', '.join(tables)}")
@@ -127,22 +129,47 @@ async def create_initial_data():
         db = SessionLocal()
         
         # Importar modelos necessários
-        from src.models.manager import BotSetting
+        from src.models.models import User, SystemSettings
+        import bcrypt
         
-        # Criar configurações padrão do bot se não existirem
-        existing_settings = db.query(BotSetting).first()
-        if not existing_settings:
-            default_settings = BotSetting(
-                daily_profit_target=1.0,
-                global_stop_loss=-3.0,
-                min_notional=15.0,
-                max_hours=72
+        # Criar usuário admin padrão se não existir
+        existing_user = db.query(User).filter_by(username="admin").first()
+        if not existing_user:
+            password_hash = bcrypt.hashpw("bot123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            admin_user = User(
+                username="admin",
+                email="admin@cryptosdca.ai",
+                hashed_password=password_hash,
+                is_admin=True,
+                is_active=True
             )
-            db.add(default_settings)
-            db.commit()
-            logger.info("Created default bot settings")
+            db.add(admin_user)
+            logger.info("Created default admin user")
+
+        # Criar configurações padrão do sistema se não existirem
+        default_settings = [
+            ("daily_profit_target", "1.0", "float", "Meta de lucro diária (%)", "trading"),
+            ("global_stop_loss", "-3.0", "float", "Stop loss global (%)", "trading"),
+            ("max_operation_duration_hours", "72", "int", "Duração máxima da operação (horas)", "trading"),
+            ("min_pairs_count", "3", "int", "Número mínimo de pares simultâneos", "trading"),
+            ("paper_trading", "true", "bool", "Modo paper trading ativo", "trading"),
+        ]
         
+        for key, value, value_type, description, category in default_settings:
+            existing_setting = db.query(SystemSettings).filter_by(key=key).first()
+            if not existing_setting:
+                setting = SystemSettings(
+                    key=key,
+                    value=value,
+                    value_type=value_type,
+                    description=description,
+                    category=category
+                )
+                db.add(setting)
+        
+        db.commit()
         db.close()
+        logger.info("Initial data created successfully")
         
     except Exception as e:
         logger.error(f"Failed to create initial data: {e}")
@@ -213,10 +240,11 @@ def get_database_info() -> dict:
     """
     try:
         db = SessionLocal()
-        inspector = engine.inspect(engine)
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
         
         info = {
-            "url": str(engine.url).replace(engine.url.password or '', '***'),
+            "url": str(engine.url).replace(str(engine.url.password) if engine.url.password else '', '***'),
             "dialect": engine.dialect.name,
             "driver": engine.dialect.driver,
             "tables": inspector.get_table_names(),
