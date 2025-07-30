@@ -47,11 +47,11 @@ from api.routes import admin, dashboard, history, settings as api_settings, trad
 from api.routes.auth import router as auth_router, get_current_user
 
 # Core bot components
-from core.ai_validator import AIValidator
-from core.dca_engine import DCAEngine
-from core.exchange_manager import ExchangeManager
-from core.risk_manager import RiskManager
-from core.sentiment_analyzer import SentimentAnalyzer
+from src.core.ai_validator import AIValidator
+from src.core.dca_engine import DCAEngine
+from src.core.exchange_manager import ExchangeManager
+from src.core.risk_manager import RiskManager
+from src.core.sentiment_analyzer import SentimentAnalyzer
 
 # --------------------------------------------------------------------------- #
 # Settings & globals
@@ -89,7 +89,7 @@ async def lifespan(_: FastAPI):
         sentiment_analyzer = SentimentAnalyzer()
         await sentiment_analyzer.initialize()
 
-        risk_manager = RiskManager()
+        risk_manager = RiskManager(exchange_manager=exchange_manager)
         await risk_manager.initialize()
 
         dca_engine = DCAEngine(
@@ -122,7 +122,7 @@ async def lifespan(_: FastAPI):
 # --------------------------------------------------------------------------- #
 
 app = FastAPI(
-    title=settings.name,
+    title=settings.app_name,
     description="Advanced crypto trading bot with AI validation and DCA strategy",
     version=settings.version,
     debug=settings.debug,
@@ -195,7 +195,7 @@ async def root(request: Request):
 async def dashboard_page(request: Request, user: User = Depends(get_current_user)):
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "app_name": settings.name, "version": settings.version},
+        {"request": request, "user": user, "app_name": settings.app_name, "version": settings.version},
     )
 
 
@@ -211,7 +211,7 @@ async def health():
 @app.get("/info")
 async def info():
     return {
-        "name": settings.name,
+        "name": settings.app_name,
         "version": settings.version,
         "debug": settings.debug,
         "paper_trading": settings.paper_trading,
@@ -229,7 +229,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(history.router,  prefix="/api/history",  tags=["history"])
 app.include_router(api_settings.router, prefix="/api/settings", tags=["settings"])
 
-logger.info("🛣  Routers mounted: " + ", ".join([r.prefix or "/" for r in app.router.routes]))
+logger.info("🛣  Routers mounted successfully")
 
 
 # --------------------------------------------------------------------------- #

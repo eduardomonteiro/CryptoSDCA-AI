@@ -95,10 +95,10 @@ async def init_database() -> bool:
     try:
         # Importar todos os modelos para garantir que sejam registrados
         from src.models.manager import (
-            ExchangeKey, AIAgent, FundingWallet, 
+            ExchangeKey, FundingWallet, 
             BotSetting, IndicatorPreset
         )
-        from src.models.base import User  # Se existir
+        from src.models.models import User  # Import from models.py instead
         
         logger.info("Creating database tables...")
         
@@ -106,7 +106,8 @@ async def init_database() -> bool:
         Base.metadata.create_all(bind=engine)
         
         # Verificar se as tabelas foram criadas
-        inspector = engine.inspect(engine)
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
         tables = inspector.get_table_names()
         
         logger.info(f"Database initialized with {len(tables)} tables: {', '.join(tables)}")
@@ -184,6 +185,10 @@ async def get_async_db_session():
         raise
     finally:
         db.close()
+
+
+# Alias for backward compatibility
+async_db_session = get_async_db_session
 
 
 def check_database_connection() -> bool:

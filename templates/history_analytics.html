@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>History Analytics - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .history-card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .metric-card.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        .metric-card.warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        .metric-card.info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link active" href="/history">
+                    <i class="fas fa-history me-1"></i>History
+                </a>
+                <a class="nav-link" href="/settings">
+                    <i class="fas fa-cog me-1"></i>Settings
+                </a>
+                <a class="nav-link" href="/auth/logout">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-chart-bar me-2"></i>History Analytics</h2>
+            <div>
+                <button class="btn btn-outline-primary me-2" onclick="exportAnalytics()">
+                    <i class="fas fa-download me-2"></i>Export Report
+                </button>
+                <button class="btn btn-outline-secondary" onclick="refreshData()">
+                    <i class="fas fa-sync me-2"></i>Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Date Range Filter -->
+        <div class="history-card p-4 mb-4">
+            <h5 class="mb-3">Date Range</h5>
+            <form id="date-range-form">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label for="date-from" class="form-label">From</label>
+                        <input type="date" class="form-control" id="date-from" name="date_from" 
+                               value="{{ filters.date_from }}">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label for="date-to" class="form-label">To</label>
+                        <input type="date" class="form-control" id="date-to" name="date_to" 
+                               value="{{ filters.date_to }}">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label for="period" class="form-label">Period</label>
+                        <select class="form-select" id="period" name="period">
+                            <option value="1d" {% if filters.period == '1d' %}selected{% endif %}>Last 24 Hours</option>
+                            <option value="7d" {% if filters.period == '7d' %}selected{% endif %}>Last 7 Days</option>
+                            <option value="30d" {% if filters.period == '30d' %}selected{% endif %}>Last 30 Days</option>
+                            <option value="90d" {% if filters.period == '90d' %}selected{% endif %}>Last 90 Days</option>
+                            <option value="1y" {% if filters.period == '1y' %}selected{% endif %}>Last Year</option>
+                            <option value="custom" {% if filters.period == 'custom' %}selected{% endif %}>Custom</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">&nbsp;</label>
+                        <div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-filter me-2"></i>Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Key Metrics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="metric-card success">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h3 class="mb-0">{{ "%.2f"|format(metrics.total_pnl) }}%</h3>
+                            <p class="mb-0">Total P&L</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-chart-line fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card info">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h3 class="mb-0">{{ "%.2f"|format(metrics.win_rate) }}%</h3>
+                            <p class="mb-0">Win Rate</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-trophy fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card warning">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h3 class="mb-0">{{ "%.2f"|format(metrics.max_drawdown) }}%</h3>
+                            <p class="mb-0">Max Drawdown</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-arrow-down fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h3 class="mb-0">{{ "%.2f"|format(metrics.sharpe_ratio) }}</h3>
+                            <p class="mb-0">Sharpe Ratio</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-chart-area fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row 1 -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">P&L Over Time</h5>
+                    <div class="chart-container">
+                        <canvas id="pnlChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Trade Distribution by Pair</h5>
+                    <div class="chart-container">
+                        <canvas id="pairChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row 2 -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Win/Loss Distribution</h5>
+                    <div class="chart-container">
+                        <canvas id="winLossChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Daily Volume</h5>
+                    <div class="chart-container">
+                        <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Analysis -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Performance Analysis</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>Value</th>
+                                    <th>Benchmark</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Total Return</td>
+                                    <td>{{ "%.2f"|format(analysis.total_return) }}%</td>
+                                    <td>10.00%</td>
+                                    <td>
+                                        <span class="badge {% if analysis.total_return >= 10 %}bg-success{% else %}bg-warning{% endif %}">
+                                            {{ 'Good' if analysis.total_return >= 10 else 'Below Target' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Sharpe Ratio</td>
+                                    <td>{{ "%.2f"|format(analysis.sharpe_ratio) }}</td>
+                                    <td>1.00</td>
+                                    <td>
+                                        <span class="badge {% if analysis.sharpe_ratio >= 1 %}bg-success{% else %}bg-warning{% endif %}">
+                                            {{ 'Good' if analysis.sharpe_ratio >= 1 else 'Below Target' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Max Drawdown</td>
+                                    <td>{{ "%.2f"|format(analysis.max_drawdown) }}%</td>
+                                    <td>-20.00%</td>
+                                    <td>
+                                        <span class="badge {% if analysis.max_drawdown >= -20 %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ 'Good' if analysis.max_drawdown >= -20 else 'High Risk' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Win Rate</td>
+                                    <td>{{ "%.2f"|format(analysis.win_rate) }}%</td>
+                                    <td>60.00%</td>
+                                    <td>
+                                        <span class="badge {% if analysis.win_rate >= 60 %}bg-success{% else %}bg-warning{% endif %}">
+                                            {{ 'Good' if analysis.win_rate >= 60 else 'Below Target' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Profit Factor</td>
+                                    <td>{{ "%.2f"|format(analysis.profit_factor) }}</td>
+                                    <td>1.50</td>
+                                    <td>
+                                        <span class="badge {% if analysis.profit_factor >= 1.5 %}bg-success{% else %}bg-warning{% endif %}">
+                                            {{ 'Good' if analysis.profit_factor >= 1.5 else 'Below Target' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Average Trade Duration</td>
+                                    <td>{{ analysis.avg_trade_duration }}</td>
+                                    <td>2h</td>
+                                    <td>
+                                        <span class="badge bg-info">Info</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Top Performing Pairs</h5>
+                    <div class="list-group list-group-flush">
+                        {% for pair in top_pairs %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ pair.symbol }}</strong>
+                                <br>
+                                <small class="text-muted">{{ pair.trades }} trades</small>
+                            </div>
+                            <span class="badge {% if pair.pnl >= 0 %}bg-success{% else %}bg-danger{% endif %} rounded-pill">
+                                {{ "%.2f"|format(pair.pnl) }}%
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Risk Analysis -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Risk Metrics</h5>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-primary">{{ "%.2f"|format(risk_metrics.var_95) }}%</h4>
+                                <small class="text-muted">VaR (95%)</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-warning">{{ "%.2f"|format(risk_metrics.volatility) }}%</h4>
+                                <small class="text-muted">Volatility</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-info">{{ "%.2f"|format(risk_metrics.beta) }}</h4>
+                                <small class="text-muted">Beta</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-success">{{ "%.2f"|format(risk_metrics.calmar_ratio) }}</h4>
+                                <small class="text-muted">Calmar Ratio</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="history-card p-4">
+                    <h5 class="mb-3">Trading Activity</h5>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-primary">{{ activity_metrics.total_trades }}</h4>
+                                <small class="text-muted">Total Trades</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-success">{{ activity_metrics.winning_trades }}</h4>
+                                <small class="text-muted">Winning Trades</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-danger">{{ activity_metrics.losing_trades }}</h4>
+                                <small class="text-muted">Losing Trades</small>
+                            </div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <div class="text-center">
+                                <h4 class="text-info">{{ activity_metrics.avg_trades_per_day }}</h4>
+                                <small class="text-muted">Avg/Day</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Apply date range filter
+        document.getElementById('date-range-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData);
+            window.location.href = '/history/analytics?' + params.toString();
+        });
+
+        function refreshData() {
+            location.reload();
+        }
+
+        function exportAnalytics() {
+            const formData = new FormData(document.getElementById('date-range-form'));
+            const params = new URLSearchParams(formData);
+            
+            fetch(`/api/analytics/export?${params.toString()}`)
+                .then(response => response.blob())
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `analytics_report_${new Date().toISOString().split('T')[0]}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                })
+                .catch(error => {
+                    alert('Error exporting analytics: ' + error.message);
+                });
+        }
+
+        // Initialize charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // P&L Chart
+            const pnlCtx = document.getElementById('pnlChart').getContext('2d');
+            new Chart(pnlCtx, {
+                type: 'line',
+                data: {
+                    labels: {{ pnl_chart.labels | tojson }},
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: {{ pnl_chart.data | tojson }},
+                        borderColor: '#28a745',
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Pair Distribution Chart
+            const pairCtx = document.getElementById('pairChart').getContext('2d');
+            new Chart(pairCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: {{ pair_chart.labels | tojson }},
+                    datasets: [{
+                        data: {{ pair_chart.data | tojson }},
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                            '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Win/Loss Chart
+            const winLossCtx = document.getElementById('winLossChart').getContext('2d');
+            new Chart(winLossCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Winning Trades', 'Losing Trades'],
+                    datasets: [{
+                        data: [{{ win_loss_chart.winning }}, {{ win_loss_chart.losing }}],
+                        backgroundColor: ['#28a745', '#dc3545']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Volume Chart
+            const volumeCtx = document.getElementById('volumeChart').getContext('2d');
+            new Chart(volumeCtx, {
+                type: 'bar',
+                data: {
+                    labels: {{ volume_chart.labels | tojson }},
+                    datasets: [{
+                        label: 'Daily Volume',
+                        data: {{ volume_chart.data | tojson }},
+                        backgroundColor: '#17a2b8',
+                        borderColor: '#17a2b8',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

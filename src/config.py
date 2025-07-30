@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     # =====================================
     max_drawdown_percent: float = Field(5.0, description="Drawdown máximo permitido (%)")
     daily_loss_limit: float = Field(100.0, description="Limite de perda diária (USD)")
+    max_portfolio_exposure: float = Field(50.0, description="Exposição máxima do portfólio (%)")
+    max_daily_drawdown: float = Field(3.0, description="Drawdown máximo diário (%)")
+    max_position_size: float = Field(10.0, description="Tamanho máximo da posição (%)")
+    max_correlation: float = Field(0.7, description="Correlação máxima entre posições")
+    var_limit: float = Field(2.0, description="Limite de Value at Risk (%)")
+    volatility_limit: float = Field(30.0, description="Limite de volatilidade (%)")
 
     # =====================================
     # CHAVES API DAS EXCHANGES

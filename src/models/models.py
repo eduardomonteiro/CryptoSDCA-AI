@@ -90,6 +90,48 @@ class User(Base):
         return f"<User(username='{self.username}', is_admin={self.is_admin})>"
 
 
+class UserSettings(Base):
+    """User-specific settings and preferences"""
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Trading preferences
+    default_profit_target = Column(Float, default=5.0)
+    default_stop_loss = Column(Float, default=-3.0)
+    max_position_size = Column(Float, default=10.0)
+    preferred_pairs = Column(JSON, nullable=True)  # List of preferred trading pairs
+    
+    # Notification settings
+    notification_email = Column(Boolean, default=True)
+    notification_telegram = Column(Boolean, default=False)
+    telegram_chat_id = Column(String(100), nullable=True)
+    
+    # Risk management
+    max_daily_loss = Column(Float, default=100.0)
+    max_portfolio_exposure = Column(Float, default=50.0)
+    
+    # UI preferences
+    theme = Column(String(20), default="light")  # light, dark
+    language = Column(String(10), default="en")
+    timezone = Column(String(50), default="UTC")
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="settings")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', name='unique_user_settings'),
+        Index('idx_user_settings_user', 'user_id'),
+    )
+
+    def __repr__(self):
+        return f"<UserSettings(user_id={self.user_id})>"
+
+
 # =============================================================================
 # Exchange Management Models
 # =============================================================================
@@ -184,6 +226,7 @@ class TradingPair(Base):
     base_asset = Column(String(10), nullable=False)  # BTC
     quote_asset = Column(String(10), nullable=False)  # USDT
     status = Column(Enum(TradingPairStatus), default=TradingPairStatus.ACTIVE)
+    is_active = Column(Boolean, default=True)
 
     # DCA Configuration
     target_profit_percent = Column(Float, default=1.0)
@@ -373,6 +416,77 @@ class TradeHistory(Base):
         return f"<TradeHistory(symbol='{self.symbol}', side='{self.side}', profit_loss={self.profit_loss})>"
 
 
+class OperationLog(Base):
+    """System operation logs"""
+    __tablename__ = "operation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=func.now())
+    level = Column(String(20), nullable=False)  # INFO, WARNING, ERROR, DEBUG
+    module = Column(String(100), nullable=False)
+    message = Column(Text, nullable=False)
+    details = Column(JSON, nullable=True)
+    stack_trace = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('idx_log_timestamp', 'timestamp'),
+        Index('idx_log_level', 'level'),
+        Index('idx_log_module', 'module'),
+    )
+
+    def __repr__(self):
+        return f"<OperationLog(level='{self.level}', module='{self.module}', timestamp={self.timestamp})>"
+
+
+class DCAOperation(Base):
+    """DCA (Dollar Cost Averaging) operations"""
+    __tablename__ = "dca_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    trading_pair_id = Column(Integer, ForeignKey("trading_pairs.id"), nullable=False)
+    
+    # Operation details
+    operation_type = Column(String(50), nullable=False)  # 'buy', 'sell', 'grid'
+    status = Column(String(20), default="pending")  # pending, active, completed, failed
+    side = Column(Enum(OrderSide), nullable=False)
+    
+    # Amounts
+    total_amount_usd = Column(Float, nullable=False)
+    quantity = Column(Float, nullable=False)
+    average_price = Column(Float, nullable=True)
+    
+    # Grid trading info
+    grid_levels = Column(Integer, default=1)
+    grid_spacing = Column(Float, nullable=True)
+    grid_width = Column(Float, nullable=True)
+    
+    # Performance
+    profit_loss = Column(Float, default=0.0)
+    profit_loss_percent = Column(Float, default=0.0)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Error handling
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+
+    # Relationships
+    user = relationship("User")
+    trading_pair = relationship("TradingPair")
+
+    __table_args__ = (
+        Index('idx_dca_user_status', 'user_id', 'status'),
+        Index('idx_dca_created', 'created_at'),
+    )
+
+    def __repr__(self):
+        return f"<DCAOperation(type='{self.operation_type}', status='{self.status}', amount=${self.total_amount_usd})>"
+
+
 # =============================================================================
 # System Configuration Models
 # =============================================================================
@@ -382,22 +496,58 @@ class SystemSettings(Base):
     __tablename__ = "system_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(100), unique=True, nullable=False, index=True)
-    value = Column(Text, nullable=True)
-    value_type = Column(String(20), default="string")  # string, int, float, bool, json
-    description = Column(Text, nullable=True)
-    category = Column(String(50), nullable=True)  # trading, indicators, risk, etc.
-    is_encrypted = Column(Boolean, default=False)
-
+    
+    # Trading configuration
+    default_profit_target = Column(Float, default=5.0)
+    default_stop_loss = Column(Float, default=-3.0)
+    max_portfolio_exposure = Column(Float, default=50.0)
+    max_daily_drawdown = Column(Float, default=10.0)
+    max_position_size = Column(Float, default=10.0)
+    min_pairs_count = Column(Integer, default=3)
+    max_pairs_count = Column(Integer, default=10)
+    max_operation_duration_hours = Column(Integer, default=24)
+    min_notional = Column(Float, default=10.0)
+    max_correlation = Column(Float, default=0.7)
+    var_limit = Column(Float, default=5.0)
+    volatility_limit = Column(Float, default=0.5)
+    
+    # Risk management
+    max_daily_loss_usd = Column(Float, default=100.0)
+    circuit_breaker_enabled = Column(Boolean, default=True)
+    circuit_breaker_threshold = Column(Float, default=5.0)
+    
+    # Technical indicators
+    rsi_period = Column(Integer, default=14)
+    rsi_oversold = Column(Integer, default=30)
+    rsi_overbought = Column(Integer, default=70)
+    macd_fast_period = Column(Integer, default=12)
+    macd_slow_period = Column(Integer, default=26)
+    macd_signal_period = Column(Integer, default=9)
+    bb_period = Column(Integer, default=20)
+    bb_std_dev = Column(Integer, default=2)
+    
+    # DCA configuration
+    grid_spacing_min = Column(Float, default=1.0)
+    grid_spacing_max = Column(Float, default=3.0)
+    grid_width_min = Column(Float, default=15.0)
+    grid_width_max = Column(Float, default=25.0)
+    
+    # AI configuration
+    ai_validation_required = Column(Boolean, default=True)
+    ai_consensus_required = Column(Boolean, default=True)
+    ai_timeout_seconds = Column(Integer, default=30)
+    
+    # System configuration
+    paper_trading = Column(Boolean, default=True)
+    test_mode = Column(Boolean, default=False)
+    debug_mode = Column(Boolean, default=True)
+    log_level = Column(String(20), default="INFO")
+    
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        Index('idx_settings_category', 'category'),
-    )
-
     def __repr__(self):
-        return f"<SystemSettings(key='{self.key}', category='{self.category}')>"
+        return f"<SystemSettings(id={self.id}, profit_target={self.default_profit_target})>"
 
 
 class NewsSource(Base):
@@ -511,8 +661,8 @@ def create_all_tables():
 
 # Export all models
 __all__ = [
-    "User", "Exchange", "AIAgent", "TradingPair", "Order", "TradeDecision",
-    "TradeHistory", "SystemSettings", "NewsSource", "MarketSentiment", 
+    "User", "UserSettings", "Exchange", "AIAgent", "TradingPair", "Order", "TradeDecision",
+    "TradeHistory", "OperationLog", "DCAOperation", "SystemSettings", "NewsSource", "MarketSentiment", 
     "SystemHealth", "OrderSide", "OrderType", "OrderStatus", 
     "TradingPairStatus", "AIDecision", "ExchangeStatus", "create_all_tables"
 ]

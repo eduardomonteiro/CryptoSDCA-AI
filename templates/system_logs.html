@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Logs - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .history-card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        .table th {
+            background-color: #f8f9fa;
+            border-top: none;
+        }
+        .log-level-error { color: #dc3545; font-weight: bold; }
+        .log-level-warning { color: #ffc107; font-weight: bold; }
+        .log-level-info { color: #17a2b8; }
+        .log-level-debug { color: #6c757d; }
+        .log-level-critical { color: #dc3545; font-weight: bold; background-color: #f8d7da; }
+        .log-entry {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        .log-timestamp {
+            color: #6c757d;
+            font-size: 0.8rem;
+        }
+        .log-message {
+            word-break: break-word;
+        }
+        .auto-refresh {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/admin">
+                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI Admin
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/admin">
+                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/admin/users">
+                    <i class="fas fa-users me-1"></i>Users
+                </a>
+                <a class="nav-link" href="/admin/exchanges">
+                    <i class="fas fa-exchange-alt me-1"></i>Exchanges
+                </a>
+                <a class="nav-link" href="/admin/ai-agents">
+                    <i class="fas fa-brain me-1"></i>AI Agents
+                </a>
+                <a class="nav-link" href="/admin/system-config">
+                    <i class="fas fa-cogs me-1"></i>System Config
+                </a>
+                <a class="nav-link" href="/auth/logout">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Auto-refresh indicator -->
+    <div class="auto-refresh">
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="fas fa-sync-alt me-2"></i>
+            <span id="refresh-status">Auto-refresh enabled</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    </div>
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-file-alt me-2"></i>System Logs</h2>
+            <div>
+                <button class="btn btn-outline-primary me-2" onclick="exportLogs()">
+                    <i class="fas fa-download me-2"></i>Export
+                </button>
+                <button class="btn btn-outline-warning me-2" onclick="clearLogs()">
+                    <i class="fas fa-trash me-2"></i>Clear Logs
+                </button>
+                <button class="btn btn-outline-secondary" onclick="refreshData()">
+                    <i class="fas fa-sync me-2"></i>Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Log Statistics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="history-card p-3 text-center">
+                    <h4 class="text-primary">{{ stats.total_logs }}</h4>
+                    <p class="text-muted mb-0">Total Logs</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="history-card p-3 text-center">
+                    <h4 class="text-danger">{{ stats.error_logs }}</h4>
+                    <p class="text-muted mb-0">Errors</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="history-card p-3 text-center">
+                    <h4 class="text-warning">{{ stats.warning_logs }}</h4>
+                    <p class="text-muted mb-0">Warnings</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="history-card p-3 text-center">
+                    <h4 class="text-info">{{ stats.today_logs }}</h4>
+                    <p class="text-muted mb-0">Today</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="history-card p-4 mb-4">
+            <h5 class="mb-3">Filters</h5>
+            <form id="filters-form">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label for="date-from" class="form-label">Date From</label>
+                        <input type="date" class="form-control" id="date-from" name="date_from" 
+                               value="{{ filters.date_from }}">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label for="date-to" class="form-label">Date To</label>
+                        <input type="date" class="form-control" id="date-to" name="date_to" 
+                               value="{{ filters.date_to }}">
+                    </div>
+                    <div class="col-md-2 mb-3">
+                        <label for="level-filter" class="form-label">Level</label>
+                        <select class="form-select" id="level-filter" name="level">
+                            <option value="">All</option>
+                            <option value="CRITICAL" {% if filters.level == 'CRITICAL' %}selected{% endif %}>Critical</option>
+                            <option value="ERROR" {% if filters.level == 'ERROR' %}selected{% endif %}>Error</option>
+                            <option value="WARNING" {% if filters.level == 'WARNING' %}selected{% endif %}>Warning</option>
+                            <option value="INFO" {% if filters.level == 'INFO' %}selected{% endif %}>Info</option>
+                            <option value="DEBUG" {% if filters.level == 'DEBUG' %}selected{% endif %}>Debug</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-3">
+                        <label for="module-filter" class="form-label">Module</label>
+                        <select class="form-select" id="module-filter" name="module">
+                            <option value="">All</option>
+                            {% for module in available_modules %}
+                            <option value="{{ module }}" {% if filters.module == module %}selected{% endif %}>{{ module }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-3">
+                        <label for="auto-refresh-toggle" class="form-label">Auto-refresh</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh-toggle" 
+                                   {% if auto_refresh %}checked{% endif %}>
+                            <label class="form-check-label" for="auto-refresh-toggle">
+                                Enabled
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-8 mb-3">
+                        <label for="search" class="form-label">Search</label>
+                        <input type="text" class="form-control" id="search" name="search" 
+                               value="{{ filters.search }}" placeholder="Search in log messages...">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="limit" class="form-label">Limit</label>
+                        <select class="form-select" id="limit" name="limit">
+                            <option value="100" {% if filters.limit == 100 %}selected{% endif %}>100</option>
+                            <option value="500" {% if filters.limit == 500 %}selected{% endif %}>500</option>
+                            <option value="1000" {% if filters.limit == 1000 %}selected{% endif %}>1000</option>
+                            <option value="5000" {% if filters.limit == 5000 %}selected{% endif %}>5000</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-filter me-2"></i>Apply Filters
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="clearFilters()">
+                        <i class="fas fa-times me-2"></i>Clear Filters
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Logs Table -->
+        <div class="history-card p-4">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Level</th>
+                            <th>Module</th>
+                            <th>Message</th>
+                            <th>User</th>
+                            <th>IP</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr class="log-entry">
+                            <td class="log-timestamp">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>
+                                <span class="log-level-{{ log.level.lower() }}">
+                                    {{ log.level }}
+                                </span>
+                            </td>
+                            <td>{{ log.module }}</td>
+                            <td class="log-message">
+                                {{ log.message }}
+                                {% if log.exception %}
+                                <br><small class="text-danger">{{ log.exception }}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ log.user.username if log.user else '-' }}</td>
+                            <td>{{ log.ip_address if log.ip_address else '-' }}</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="viewLogDetails({{ log.id }})">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-info" onclick="viewStackTrace({{ log.id }})">
+                                        <i class="fas fa-code"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if pagination.total_pages > 1 %}
+            <nav aria-label="System logs pagination" class="mt-4">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item {% if pagination.current_page == 1 %}disabled{% endif %}">
+                        <a class="page-link" href="?page={{ pagination.current_page - 1 }}">Previous</a>
+                    </li>
+                    
+                    {% for page in range(1, pagination.total_pages + 1) %}
+                    <li class="page-item {% if page == pagination.current_page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ page }}">{{ page }}</a>
+                    </li>
+                    {% endfor %}
+                    
+                    <li class="page-item {% if pagination.current_page == pagination.total_pages %}disabled{% endif %}">
+                        <a class="page-link" href="?page={{ pagination.current_page + 1 }}">Next</a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Log Details Modal -->
+    <div class="modal fade" id="logDetailsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Log Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="log-details-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stack Trace Modal -->
+    <div class="modal fade" id="stackTraceModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Stack Trace</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="stack-trace-content">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let autoRefreshInterval;
+
+        // Apply filters
+        document.getElementById('filters-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData);
+            window.location.href = '/history/logs?' + params.toString();
+        });
+
+        function clearFilters() {
+            window.location.href = '/history/logs';
+        }
+
+        function refreshData() {
+            location.reload();
+        }
+
+        function exportLogs() {
+            const formData = new FormData(document.getElementById('filters-form'));
+            const params = new URLSearchParams(formData);
+            
+            fetch(`/api/logs/export?${params.toString()}`)
+                .then(response => response.blob())
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `system_logs_${new Date().toISOString().split('T')[0]}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                })
+                .catch(error => {
+                    alert('Error exporting logs: ' + error.message);
+                });
+        }
+
+        function clearLogs() {
+            if (confirm('Are you sure you want to clear all logs? This action cannot be undone.')) {
+                fetch('/api/logs/clear', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert('Logs cleared successfully!');
+                        location.reload();
+                    } else {
+                        alert('Error: ' + result.detail);
+                    }
+                })
+                .catch(error => {
+                    alert('Error clearing logs: ' + error.message);
+                });
+            }
+        }
+
+        function viewLogDetails(logId) {
+            fetch(`/api/logs/${logId}`)
+                .then(response => response.json())
+                .then(log => {
+                    const content = `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Basic Information</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>ID:</strong></td><td>${log.id}</td></tr>
+                                    <tr><td><strong>Level:</strong></td><td><span class="log-level-${log.level.toLowerCase()}">${log.level}</span></td></tr>
+                                    <tr><td><strong>Module:</strong></td><td>${log.module}</td></tr>
+                                    <tr><td><strong>Timestamp:</strong></td><td>${log.timestamp}</td></tr>
+                                    <tr><td><strong>User:</strong></td><td>${log.user ? log.user.username : 'System'}</td></tr>
+                                    <tr><td><strong>IP Address:</strong></td><td>${log.ip_address || 'N/A'}</td></tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Additional Information</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Function:</strong></td><td>${log.function_name || 'N/A'}</td></tr>
+                                    <tr><td><strong>Line:</strong></td><td>${log.line_number || 'N/A'}</td></tr>
+                                    <tr><td><strong>File:</strong></td><td>${log.file_name || 'N/A'}</td></tr>
+                                    <tr><td><strong>Process ID:</strong></td><td>${log.process_id || 'N/A'}</td></tr>
+                                    <tr><td><strong>Thread ID:</strong></td><td>${log.thread_id || 'N/A'}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <h6>Message</h6>
+                            <pre class="bg-light p-3 rounded">${log.message}</pre>
+                        </div>
+                        ${log.exception ? `<div class="mt-3"><h6>Exception</h6><pre class="bg-danger text-white p-3 rounded">${log.exception}</pre></div>` : ''}
+                        ${log.extra_data ? `<div class="mt-3"><h6>Extra Data</h6><pre class="bg-light p-3 rounded">${JSON.stringify(log.extra_data, null, 2)}</pre></div>` : ''}
+                    `;
+                    
+                    document.getElementById('log-details-content').innerHTML = content;
+                    const modal = new bootstrap.Modal(document.getElementById('logDetailsModal'));
+                    modal.show();
+                })
+                .catch(error => {
+                    alert('Error loading log details: ' + error.message);
+                });
+        }
+
+        function viewStackTrace(logId) {
+            fetch(`/api/logs/${logId}/stack-trace`)
+                .then(response => response.json())
+                .then(data => {
+                    const content = `
+                        <div class="mb-3">
+                            <h6>Stack Trace</h6>
+                            <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${data.stack_trace || 'No stack trace available'}</pre>
+                        </div>
+                        ${data.context ? `<div class="mt-3"><h6>Context</h6><pre class="bg-light p-3 rounded">${JSON.stringify(data.context, null, 2)}</pre></div>` : ''}
+                    `;
+                    
+                    document.getElementById('stack-trace-content').innerHTML = content;
+                    const modal = new bootstrap.Modal(document.getElementById('stackTraceModal'));
+                    modal.show();
+                })
+                .catch(error => {
+                    alert('Error loading stack trace: ' + error.message);
+                });
+        }
+
+        // Auto-refresh functionality
+        document.getElementById('auto-refresh-toggle').addEventListener('change', function() {
+            if (this.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+
+        function startAutoRefresh() {
+            document.getElementById('refresh-status').textContent = 'Auto-refresh enabled';
+            autoRefreshInterval = setInterval(() => {
+                location.reload();
+            }, 30000); // Refresh every 30 seconds
+        }
+
+        function stopAutoRefresh() {
+            document.getElementById('refresh-status').textContent = 'Auto-refresh disabled';
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        // Initialize auto-refresh if enabled
+        if (document.getElementById('auto-refresh-toggle').checked) {
+            startAutoRefresh();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Profile - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .profile-card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        .profile-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 1rem 1rem 0 0;
+            padding: 2rem;
+            text-align: center;
+        }
+        .avatar-large {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            margin: 0 auto 1rem;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+        }
+        .stat-card {
+            background: white;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .activity-item {
+            border-left: 3px solid #0d6efd;
+            padding-left: 1rem;
+            margin-bottom: 1rem;
+        }
+        .activity-item.success {
+            border-left-color: #28a745;
+        }
+        .activity-item.warning {
+            border-left-color: #ffc107;
+        }
+        .activity-item.danger {
+            border-left-color: #dc3545;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/history">
+                    <i class="fas fa-history me-1"></i>History
+                </a>
+                <a class="nav-link active" href="/settings">
+                    <i class="fas fa-cog me-1"></i>Settings
+                </a>
+                <a class="nav-link" href="/auth/logout">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <!-- Profile Header -->
+            <div class="col-12 mb-4">
+                <div class="profile-card">
+                    <div class="profile-header">
+                        <div class="avatar-large">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <h2>{{ user.username }}</h2>
+                        <p class="mb-0">{{ user.email }}</p>
+                        <div class="mt-3">
+                            <span class="badge bg-light text-dark me-2">
+                                <i class="fas fa-calendar me-1"></i>Member since {{ user.created_at.strftime('%B %Y') }}
+                            </span>
+                            {% if user.is_admin %}
+                            <span class="badge bg-danger">
+                                <i class="fas fa-crown me-1"></i>Administrator
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="p-4">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h4 class="text-primary">{{ stats.total_trades }}</h4>
+                                    <p class="text-muted mb-0">Total Trades</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h4 class="text-success">{{ "%.2f"|format(stats.total_pnl) }}%</h4>
+                                    <p class="text-muted mb-0">Total P&L</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h4 class="text-warning">{{ "%.2f"|format(stats.win_rate) }}%</h4>
+                                    <p class="text-muted mb-0">Win Rate</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h4 class="text-info">{{ stats.active_exchanges }}</h4>
+                                    <p class="text-muted mb-0">Active Exchanges</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Content -->
+            <div class="col-md-8">
+                <!-- Personal Information -->
+                <div class="profile-card p-4 mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-user me-2"></i>Personal Information</h5>
+                        <button class="btn btn-outline-primary btn-sm" onclick="editProfile()">
+                            <i class="fas fa-edit me-1"></i>Edit
+                        </button>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Username</label>
+                            <p class="mb-0"><strong>{{ user.username }}</strong></p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Email</label>
+                            <p class="mb-0"><strong>{{ user.email }}</strong></p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Account Status</label>
+                            <p class="mb-0">
+                                <span class="badge {% if user.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                    {{ 'Active' if user.is_active else 'Inactive' }}
+                                </span>
+                            </p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Last Login</label>
+                            <p class="mb-0"><strong>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</strong></p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Created</label>
+                            <p class="mb-0"><strong>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</strong></p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-muted">Role</label>
+                            <p class="mb-0">
+                                <span class="badge {% if user.is_admin %}bg-danger{% else %}bg-secondary{% endif %}">
+                                    {{ 'Administrator' if user.is_admin else 'User' }}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trading Statistics -->
+                <div class="profile-card p-4 mb-4">
+                    <h5 class="mb-3"><i class="fas fa-chart-line me-2"></i>Trading Statistics</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Total Trades</label>
+                                <h4 class="mb-0">{{ stats.total_trades }}</h4>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Winning Trades</label>
+                                <h4 class="text-success mb-0">{{ stats.winning_trades }}</h4>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Losing Trades</label>
+                                <h4 class="text-danger mb-0">{{ stats.losing_trades }}</h4>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Total P&L</label>
+                                <h4 class="{% if stats.total_pnl >= 0 %}text-success{% else %}text-danger{% endif %} mb-0">
+                                    {{ "%.2f"|format(stats.total_pnl) }}%
+                                </h4>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Win Rate</label>
+                                <h4 class="text-warning mb-0">{{ "%.2f"|format(stats.win_rate) }}%</h4>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">Average Trade Duration</label>
+                                <h4 class="text-info mb-0">{{ stats.avg_trade_duration }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="profile-card p-4">
+                    <h5 class="mb-3"><i class="fas fa-clock me-2"></i>Recent Activity</h5>
+                    {% for activity in recent_activities %}
+                    <div class="activity-item {{ activity.type }}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>{{ activity.title }}</strong>
+                                <br>
+                                <small class="text-muted">{{ activity.description }}</small>
+                            </div>
+                            <small class="text-muted">{{ activity.timestamp.strftime('%m/%d %H:%M') }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not recent_activities %}
+                    <p class="text-muted text-center">No recent activity</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-md-4">
+                <!-- Quick Actions -->
+                <div class="profile-card p-4 mb-4">
+                    <h5 class="mb-3"><i class="fas fa-bolt me-2"></i>Quick Actions</h5>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" onclick="changePassword()">
+                            <i class="fas fa-key me-2"></i>Change Password
+                        </button>
+                        <button class="btn btn-outline-primary" onclick="viewTradingHistory()">
+                            <i class="fas fa-history me-2"></i>View Trading History
+                        </button>
+                        <button class="btn btn-outline-info" onclick="viewAnalytics()">
+                            <i class="fas fa-chart-bar me-2"></i>View Analytics
+                        </button>
+                        <button class="btn btn-outline-warning" onclick="manageExchanges()">
+                            <i class="fas fa-exchange-alt me-2"></i>Manage Exchanges
+                        </button>
+                        {% if user.is_admin %}
+                        <button class="btn btn-outline-danger" onclick="adminPanel()">
+                            <i class="fas fa-cogs me-2"></i>Admin Panel
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Connected Exchanges -->
+                <div class="profile-card p-4 mb-4">
+                    <h5 class="mb-3"><i class="fas fa-exchange-alt me-2"></i>Connected Exchanges</h5>
+                    {% for exchange in connected_exchanges %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong>{{ exchange.name }}</strong>
+                            <br>
+                            <small class="text-muted">{{ exchange.exchange_type.title() }}</small>
+                        </div>
+                        <span class="badge {% if exchange.status == 'connected' %}bg-success{% else %}bg-danger{% endif %}">
+                            {{ exchange.status.title() }}
+                        </span>
+                    </div>
+                    {% endfor %}
+                    {% if not connected_exchanges %}
+                    <p class="text-muted text-center">No exchanges connected</p>
+                    {% endif %}
+                </div>
+
+                <!-- Security Settings -->
+                <div class="profile-card p-4">
+                    <h5 class="mb-3"><i class="fas fa-shield-alt me-2"></i>Security</h5>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Two-Factor Authentication</span>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="2fa-toggle" 
+                                       {% if user.two_factor_enabled %}checked{% endif %}>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Email Notifications</span>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="email-notifications" 
+                                       {% if user.email_notifications_enabled %}checked{% endif %}>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Login Notifications</span>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="login-notifications" 
+                                       {% if user.login_notifications_enabled %}checked{% endif %}>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div class="modal fade" id="editProfileModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Profile</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="edit-profile-form">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="edit-username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="edit-username" name="username" 
+                                   value="{{ user.username }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="edit-email" name="email" 
+                                   value="{{ user.email }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-first-name" class="form-label">First Name</label>
+                            <input type="text" class="form-control" id="edit-first-name" name="first_name" 
+                                   value="{{ user.first_name or '' }}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-last-name" class="form-label">Last Name</label>
+                            <input type="text" class="form-control" id="edit-last-name" name="last_name" 
+                                   value="{{ user.last_name or '' }}">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal fade" id="changePasswordModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Change Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="change-password-form">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="current-password" class="form-label">Current Password</label>
+                            <input type="password" class="form-control" id="current-password" name="current_password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="new-password" class="form-label">New Password</label>
+                            <input type="password" class="form-control" id="new-password" name="new_password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="confirm-password" class="form-label">Confirm New Password</label>
+                            <input type="password" class="form-control" id="confirm-password" name="confirm_password" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Change Password</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function editProfile() {
+            const modal = new bootstrap.Modal(document.getElementById('editProfileModal'));
+            modal.show();
+        }
+
+        function changePassword() {
+            const modal = new bootstrap.Modal(document.getElementById('changePasswordModal'));
+            modal.show();
+        }
+
+        function viewTradingHistory() {
+            window.location.href = '/history/trades';
+        }
+
+        function viewAnalytics() {
+            window.location.href = '/history/analytics';
+        }
+
+        function manageExchanges() {
+            window.location.href = '/settings';
+        }
+
+        function adminPanel() {
+            window.location.href = '/admin';
+        }
+
+        // Edit profile form
+        document.getElementById('edit-profile-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            
+            fetch('/settings/profile/update', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert('Profile updated successfully!');
+                    location.reload();
+                } else {
+                    alert('Error: ' + result.detail);
+                }
+            })
+            .catch(error => {
+                alert('Error updating profile: ' + error.message);
+            });
+        });
+
+        // Change password form
+        document.getElementById('change-password-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            
+            if (formData.get('new_password') !== formData.get('confirm_password')) {
+                alert('New passwords do not match!');
+                return;
+            }
+            
+            fetch('/settings/profile/change-password', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert('Password changed successfully!');
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('changePasswordModal'));
+                    modal.hide();
+                } else {
+                    alert('Error: ' + result.detail);
+                }
+            })
+            .catch(error => {
+                alert('Error changing password: ' + error.message);
+            });
+        });
+
+        // Security toggles
+        document.getElementById('2fa-toggle').addEventListener('change', function() {
+            fetch('/settings/profile/toggle-2fa', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: this.checked })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) {
+                    alert('Error: ' + result.detail);
+                    this.checked = !this.checked; // Revert if failed
+                }
+            })
+            .catch(error => {
+                alert('Error updating 2FA: ' + error.message);
+                this.checked = !this.checked; // Revert if failed
+            });
+        });
+
+        document.getElementById('email-notifications').addEventListener('change', function() {
+            fetch('/settings/profile/toggle-email-notifications', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: this.checked })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) {
+                    alert('Error: ' + result.detail);
+                    this.checked = !this.checked;
+                }
+            })
+            .catch(error => {
+                alert('Error updating email notifications: ' + error.message);
+                this.checked = !this.checked;
+            });
+        });
+
+        document.getElementById('login-notifications').addEventListener('change', function() {
+            fetch('/settings/profile/toggle-login-notifications', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: this.checked })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) {
+                    alert('Error: ' + result.detail);
+                    this.checked = !this.checked;
+                }
+            })
+            .catch(error => {
+                alert('Error updating login notifications: ' + error.message);
+                this.checked = !this.checked;
+            });
+        });
+    </script>
+</body>
+</html>
