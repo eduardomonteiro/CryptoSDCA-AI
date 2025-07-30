@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Manager – CryptoSDCA-AI{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+  <h2 class="mb-4"><i class="fas fa-cog me-2"></i>Manager Panel</h2>
+
+  <ul class="nav nav-tabs" id="mgrTabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#keys">Exchange Keys</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#agents">AI Agents</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#wallets">Wallets</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#settings">Bot Settings</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#presets">Indicator Presets</button></li>
+  </ul>
+
+  <div class="tab-content p-3 border border-top-0 rounded-bottom bg-white">
+    <!-- Exchange Keys ------------------------------------------------------>
+    <div class="tab-pane fade show active" id="keys" role="tabpanel">
+       <div class="d-flex justify-content-between align-items-center mb-2">
+         <h5>Exchange API Keys</h5>
+         <button class="btn btn-primary btn-sm" onclick="openKeyModal()">Add Key</button>
+       </div>
+       <div id="keysTable"></div>
+    </div>
+
+    <!-- Agents ------------------------------------------------------------->
+    <div class="tab-pane fade" id="agents" role="tabpanel">
+       <div class="d-flex justify-content-between align-items-center mb-2">
+         <h5>AI Agents</h5>
+         <button class="btn btn-primary btn-sm" onclick="openAgentModal()">Add Agent</button>
+       </div>
+       <div id="agentTable"></div>
+    </div>
+
+    <!-- Wallets ------------------------------------------------------------>
+    <div class="tab-pane fade" id="wallets" role="tabpanel">
+       <div class="d-flex justify-content-between align-items-center mb-2">
+         <h5>Funding Wallets</h5>
+         <button class="btn btn-primary btn-sm" onclick="openWalletModal()">Add Wallet</button>
+       </div>
+       <div id="walletTable"></div>
+    </div>
+
+    <!-- Settings ----------------------------------------------------------->
+    <div class="tab-pane fade" id="settings" role="tabpanel">
+       <h5 class="mb-3">Bot Settings</h5>
+       <form id="settingsForm" class="row g-3"></form>
+       <button class="btn btn-success" onclick="saveSettings()">Save</button>
+    </div>
+
+    <!-- Presets ------------------------------------------------------------>
+    <div class="tab-pane fade" id="presets" role="tabpanel">
+       <div class="d-flex justify-content-between align-items-center mb-2">
+         <h5>Indicator Presets</h5>
+         <button class="btn btn-primary btn-sm" onclick="openPresetModal()">Add Preset</button>
+       </div>
+       <div id="presetTable"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals are appended here by JS -->
+<div id="modalContainer"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/axios@1.5.0/dist/axios.min.js"></script>
+<script>
+const api = axios.create({ baseURL: '/api/manager' });
+
+// -------------- Exchange Keys --------------------------------------------
+async function refreshKeys(){
+  const {data} = await api.get('/keys');
+  const rows = data.map(k=>`
+    <tr>
+     <td>${k.name}</td><td>${k.exchange}</td>
+     <td>${k.sandbox ? 'Yes':'No'}</td>
+     <td>${k.active ? '✅':'❌'}</td>
+     <td>${new Date(k.last_update).toLocaleString()}</td>
+     <td>
+        <button class="btn btn-sm btn-outline-danger" onclick="delKey(${k.id})">
+          <i class="fas fa-trash"></i>
+        </button>
+     </td>
+    </tr>`).join('');
+  document.getElementById('keysTable').innerHTML =
+    `<table class="table table-sm">
+        <thead><th>Label</th><th>Exch.</th><th>Sandbox</th><th>Active</th><th>Modified</th><th></th></thead>
+        <tbody>${rows}</tbody>
+     </table>`;
+}
+async function delKey(id){ await api.delete('/keys/'+id); refreshKeys(); }
+
+// add similar refreshAgent/Wallet/Preset functions …
+
+// -------------- Bot settings (single row) --------------------------------
+async function loadSettings(){
+ const {data} = await api.get('/settings');
+ const f=document.getElementById('settingsForm');
+ f.innerHTML=`
+   <div class="col-md-3">
+     <label class="form-label">Daily Profit %</label>
+     <input class="form-control" name="daily_profit_target" value="${data.daily_profit_target}">
+   </div>
+   <div class="col-md-3">
+     <label class="form-label">Global Stop-loss %</label>
+     <input class="form-control" name="global_stop_loss" value="${data.global_stop_loss}">
+   </div>
+   <div class="col-md-3">
+     <label class="form-label">Min Notional ($)</label>
+     <input class="form-control" name="min_notional" value="${data.min_notional}">
+   </div>
+   <div class="col-md-3">
+     <label class="form-label">Max Hours</label>
+     <input class="form-control" name="max_hours" value="${data.max_hours}">
+   </div>`;
+}
+async function saveSettings(){
+  const fd=new FormData(document.getElementById('settingsForm'));
+  await api.put('/settings',fd);
+  alert('Settings saved!');
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  refreshKeys();
+  loadSettings();
+  // refresh other tables…
+});
+</script>
+{% endblock %}

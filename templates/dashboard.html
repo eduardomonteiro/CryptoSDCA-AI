@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - CryptoSDCA-AI{% endblock %}
+
+{% block content %}
+<!-- Status Cards Row -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card card-stat bg-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title text-muted">Total Profit</h6>
+                        <h4 class="profit-positive" id="total-profit">+$0.00</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-line fa-2x text-success"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card card-stat bg-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title text-muted">Active Orders</h6>
+                        <h4 id="active-orders">0</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-shopping-cart fa-2x text-primary"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card card-stat bg-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title text-muted">Bot Status</h6>
+                        <h4 class="status-active" id="bot-status">ACTIVE</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-robot fa-2x text-success live-update"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card card-stat bg-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title text-muted">AI Consensus</h6>
+                        <h4 class="text-info" id="ai-consensus">ANALYZING</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-brain fa-2x text-info"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Control Panel -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-sliders-h me-2"></i>Bot Control Panel</h5>
+                <div>
+                    <button class="btn btn-success" id="start-bot">
+                        <i class="fas fa-play me-1"></i>Start Bot
+                    </button>
+                    <button class="btn btn-warning" id="stop-bot">
+                        <i class="fas fa-pause me-1"></i>Stop Bot
+                    </button>
+                    <button class="btn btn-danger emergency-btn" id="emergency-stop" data-bs-toggle="modal" data-bs-target="#emergencyModal">
+                        <i class="fas fa-exclamation-triangle me-1"></i>EMERGENCY SELL ALL
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="form-label">Daily Profit Target (%)</label>
+                        <input type="number" class="form-control" id="profit-target" value="1.0" step="0.1">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Stop Loss (%)</label>
+                        <input type="number" class="form-control" id="stop-loss" value="-3.0" step="0.1">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Max Duration (hours)</label>
+                        <input type="number" class="form-control" id="max-duration" value="72" step="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Orders Table -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-list me-2"></i>Active Orders</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="active-orders-table">
+                        <thead>
+                            <tr>
+                                <th>Pair</th>
+                                <th>Buy Price</th>
+                                <th>Current Price</th>
+                                <th>Quantity</th>
+                                <th>P&L (%)</th>
+                                <th>Next Target</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-tbody">
+                            <!-- Orders will be populated via JavaScript/WebSocket -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-area me-2"></i>Portfolio Performance</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="portfolioChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-pie me-2"></i>Asset Distribution</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="distributionChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Decision Log -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-brain me-2"></i>AI Decision Log</h5>
+            </div>
+            <div class="card-body">
+                <div id="ai-log" style="height: 300px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                    <!-- AI decisions will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Emergency Sell Modal -->
+<div class="modal fade" id="emergencyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Emergency Sell All</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>Warning!</strong> This will immediately sell all open positions at market price.
+                    This action cannot be undone.
+                </div>
+                <p>Current open positions:</p>
+                <ul id="emergency-positions-list">
+                    <!-- Will be populated with current positions -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-emergency-sell">
+                    <i class="fas fa-exclamation-triangle me-1"></i>CONFIRM SELL ALL
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Initialize charts
+    const portfolioCtx = document.getElementById('portfolioChart').getContext('2d');
+    const portfolioChart = new Chart(portfolioCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Portfolio Value ($)',
+                data: [],
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+
+    const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+    const distributionChart = new Chart(distributionCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['USDT', 'USDC', 'DAI', 'BTC', 'ETH'],
+            datasets: [{
+                data: [30, 25, 20, 15, 10],
+                backgroundColor: [
+                    '#059669',
+                    '#2563eb', 
+                    '#d97706',
+                    '#dc2626',
+                    '#7c3aed'
+                ]
+            }]
+        },
+        options: {
+            responsive: true
+        }
+    });
+
+    // Bot control functions
+    document.getElementById('start-bot').addEventListener('click', function() {
+        fetch('/api/bot/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('bot-status').textContent = 'ACTIVE';
+                    document.getElementById('bot-status').className = 'status-active';
+                }
+            });
+    });
+
+    document.getElementById('stop-bot').addEventListener('click', function() {
+        fetch('/api/bot/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('bot-status').textContent = 'STOPPED';
+                    document.getElementById('bot-status').className = 'status-inactive';
+                }
+            });
+    });
+
+    document.getElementById('confirm-emergency-sell').addEventListener('click', function() {
+        fetch('/api/emergency-sell', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Emergency sell executed successfully!');
+                    location.reload();
+                } else {
+                    alert('Emergency sell failed: ' + data.error);
+                }
+            });
+    });
+
+    // Update functions for WebSocket data
+    function updatePortfolioStats(data) {
+        document.getElementById('total-profit').textContent = `$${data.total_profit.toFixed(2)}`;
+        document.getElementById('active-orders').textContent = data.active_orders;
+        
+        // Update portfolio chart
+        portfolioChart.data.labels.push(new Date().toLocaleTimeString());
+        portfolioChart.data.datasets[0].data.push(data.portfolio_value);
+        
+        // Keep only last 20 data points
+        if (portfolioChart.data.labels.length > 20) {
+            portfolioChart.data.labels.shift();
+            portfolioChart.data.datasets[0].data.shift();
+        }
+        
+        portfolioChart.update();
+    }
+
+    function updateOrderStatus(data) {
+        const tbody = document.getElementById('orders-tbody');
+        tbody.innerHTML = '';
+        
+        data.orders.forEach(order => {
+            const row = tbody.insertRow();
+            const profitClass = order.pnl_percent >= 0 ? 'profit-positive' : 'profit-negative';
+            
+            row.innerHTML = `
+                <td>${order.pair}</td>
+                <td>$${order.buy_price.toFixed(4)}</td>
+                <td>$${order.current_price.toFixed(4)}</td>
+                <td>${order.quantity.toFixed(4)}</td>
+                <td class="${profitClass}">${order.pnl_percent.toFixed(2)}%</td>
+                <td>$${order.next_target.toFixed(4)}</td>
+                <td><span class="badge bg-${order.status === 'active' ? 'success' : 'warning'}">${order.status}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="closeOrder('${order.id}')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </td>
+            `;
+        });
+    }
+
+    function closeOrder(orderId) {
+        if (confirm('Are you sure you want to close this order?')) {
+            fetch(`/api/orders/${orderId}/close`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Order closed successfully!');
+                    } else {
+                        alert('Failed to close order: ' + data.error);
+                    }
+                });
+        }
+    }
+
+    // Load initial data
+    fetch('/api/dashboard-data')
+        .then(response => response.json())
+        .then(data => {
+            updatePortfolioStats(data.portfolio);
+            updateOrderStatus(data);
+        });
+</script>
+{% endblock %}
