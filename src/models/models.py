@@ -85,6 +85,8 @@ class User(Base):
     exchanges = relationship("Exchange", back_populates="user")
     ai_agents = relationship("AIAgent", back_populates="user")
     trade_history = relationship("TradeHistory", back_populates="user")
+    trades = relationship("Trade", back_populates="user")
+    trading_sessions = relationship("TradingSession", back_populates="user")
 
     def __repr__(self):
         return f"<User(username='{self.username}', is_admin={self.is_admin})>"
@@ -163,6 +165,7 @@ class Exchange(Base):
     user = relationship("User", back_populates="exchanges")
     trading_pairs = relationship("TradingPair", back_populates="exchange")
     orders = relationship("Order", back_populates="exchange")
+    trades = relationship("Trade", back_populates="exchange")
 
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='unique_user_exchange'),
@@ -203,6 +206,7 @@ class AIAgent(Base):
     # Relationships
     user = relationship("User", back_populates="ai_agents")
     ai_decisions = relationship("TradeDecision", back_populates="ai_agent")
+    validation_logs = relationship("AIValidationLog", back_populates="ai_agent")
 
     __table_args__ = (
         Index('idx_ai_agent_user_type', 'user_id', 'agent_type'),
@@ -253,6 +257,7 @@ class TradingPair(Base):
     exchange = relationship("Exchange", back_populates="trading_pairs")
     orders = relationship("Order", back_populates="trading_pair")
     trade_decisions = relationship("TradeDecision", back_populates="trading_pair")
+    trades = relationship("Trade", back_populates="trading_pair")
 
     __table_args__ = (
         UniqueConstraint('exchange_id', 'symbol', name='unique_exchange_symbol'),
@@ -652,6 +657,150 @@ class SystemHealth(Base):
         return f"<SystemHealth(timestamp={self.timestamp}, exchanges={self.exchanges_connected}/{self.exchanges_total})>"
 
 
+# Add missing models after the existing ones
+
+class Trade(Base):
+    """Trade execution records"""
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    exchange_id = Column(Integer, ForeignKey("exchanges.id"), nullable=False)
+    trading_pair_id = Column(Integer, ForeignKey("trading_pairs.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("trading_sessions.id"), nullable=True)
+    
+    # Trade details
+    symbol = Column(String(20), nullable=False)
+    side = Column(Enum(OrderSide), nullable=False)
+    order_type = Column(Enum(OrderType), nullable=False)
+    quantity = Column(Float, nullable=False)
+    price = Column(Float, nullable=False)
+    total_cost = Column(Float, nullable=False)
+    fees = Column(Float, default=0.0)
+    fee_currency = Column(String(10), default="USDT")
+    
+    # Status and timing
+    status = Column(Enum(OrderStatus), default=OrderStatus.PENDING)
+    created_at = Column(DateTime, default=func.now())
+    executed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # AI validation
+    ai_validation_required = Column(Boolean, default=True)
+    ai_validation_passed = Column(Boolean, nullable=True)
+    ai_agents_used = Column(JSON, nullable=True)  # List of AI agents that validated
+    ai_consensus = Column(String(20), nullable=True)  # "YES", "NO", "SPLIT"
+    
+    # Market context
+    market_sentiment = Column(Float, nullable=True)
+    fear_greed_index = Column(Integer, nullable=True)
+    technical_indicators = Column(JSON, nullable=True)
+    
+    # Risk management
+    risk_score = Column(Float, nullable=True)
+    position_size_ratio = Column(Float, nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="trades")
+    exchange = relationship("Exchange", back_populates="trades")
+    trading_pair = relationship("TradingPair", back_populates="trades")
+    
+    __table_args__ = (
+        Index('idx_trade_user_status', 'user_id', 'status'),
+        Index('idx_trade_symbol_created', 'symbol', 'created_at'),
+        Index('idx_trade_ai_validation', 'ai_validation_passed'),
+    )
+
+    def __repr__(self):
+        return f"<Trade(symbol='{self.symbol}', side='{self.side}', status='{self.status}')>"
+
+
+class TradingSession(Base):
+    """Trading session management"""
+    __tablename__ = "trading_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Session details
+    session_name = Column(String(100), nullable=False)
+    status = Column(String(20), default="active")  # active, paused, stopped
+    start_time = Column(DateTime, default=func.now())
+    end_time = Column(DateTime, nullable=True)
+    
+    # Trading parameters
+    max_trades_per_session = Column(Integer, default=100)
+    min_interval_minutes = Column(Integer, default=5)  # 5-minute interval
+    max_daily_loss = Column(Float, default=100.0)
+    target_profit = Column(Float, default=5.0)
+    
+    # Statistics
+    total_trades = Column(Integer, default=0)
+    successful_trades = Column(Integer, default=0)
+    total_profit_loss = Column(Float, default=0.0)
+    
+    # Relationships
+    user = relationship("User", back_populates="trading_sessions")
+    trades = relationship("Trade", back_populates="session")
+    
+    __table_args__ = (
+        Index('idx_session_user_status', 'user_id', 'status'),
+    )
+
+    def __repr__(self):
+        return f"<TradingSession(name='{self.session_name}', status='{self.status}')>"
+
+
+class AIValidationLog(Base):
+    """AI validation logs for each trade"""
+    __tablename__ = "ai_validation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=False)
+    ai_agent_id = Column(Integer, ForeignKey("ai_agents.id"), nullable=False)
+    
+    # Validation details
+    validation_request = Column(JSON, nullable=False)  # Trade hypothesis sent to AI
+    validation_response = Column(JSON, nullable=False)  # AI response
+    decision = Column(String(10), nullable=False)  # "YES", "NO", "UNCERTAIN"
+    confidence_score = Column(Float, nullable=True)
+    reasoning = Column(Text, nullable=True)
+    
+    # Timing
+    request_time = Column(DateTime, default=func.now())
+    response_time = Column(DateTime, nullable=True)
+    processing_time_ms = Column(Integer, nullable=True)
+    
+    # Status
+    status = Column(String(20), default="pending")  # pending, completed, failed
+    error_message = Column(Text, nullable=True)
+    
+    # Relationships
+    trade = relationship("Trade", back_populates="ai_validations")
+    ai_agent = relationship("AIAgent", back_populates="validation_logs")
+    
+    __table_args__ = (
+        Index('idx_validation_trade_agent', 'trade_id', 'ai_agent_id'),
+        Index('idx_validation_decision', 'decision'),
+    )
+
+    def __repr__(self):
+        return f"<AIValidationLog(trade_id={self.trade_id}, agent_id={self.ai_agent_id}, decision='{self.decision}')>"
+
+
+# Update existing models to include relationships
+User.trades = relationship("Trade", back_populates="user")
+User.trading_sessions = relationship("TradingSession", back_populates="user")
+
+Exchange.trades = relationship("Trade", back_populates="exchange")
+TradingPair.trades = relationship("Trade", back_populates="trading_pair")
+
+TradingSession.trades = relationship("Trade", back_populates="session")
+Trade.session = relationship("TradingSession", back_populates="trades")
+Trade.ai_validations = relationship("AIValidationLog", back_populates="trade")
+
+AIAgent.validation_logs = relationship("AIValidationLog", back_populates="ai_agent")
+
 # Create all tables function for easy import
 def create_all_tables():
     """Create all database tables"""
@@ -664,5 +813,5 @@ __all__ = [
     "User", "UserSettings", "Exchange", "AIAgent", "TradingPair", "Order", "TradeDecision",
     "TradeHistory", "OperationLog", "DCAOperation", "SystemSettings", "NewsSource", "MarketSentiment", 
     "SystemHealth", "OrderSide", "OrderType", "OrderStatus", 
-    "TradingPairStatus", "AIDecision", "ExchangeStatus", "create_all_tables"
+    "TradingPairStatus", "AIDecision", "ExchangeStatus", "Trade", "TradingSession", "AIValidationLog", "create_all_tables"
 ]

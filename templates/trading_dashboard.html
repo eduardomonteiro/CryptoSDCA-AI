@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard - CryptoSDCA-AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.css" rel="stylesheet">
+    <style>
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        .status-badge {
+            font-size: 0.75rem;
+        }
+        .trade-item {
+            border-left: 4px solid #dee2e6;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background-color: #f8f9fa;
+        }
+        .trade-item.buy {
+            border-left-color: #28a745;
+        }
+        .trade-item.sell {
+            border-left-color: #dc3545;
+        }
+        .trade-item.ai-approved {
+            background-color: #d4edda;
+        }
+        .trade-item.ai-rejected {
+            background-color: #f8d7da;
+        }
+        .loading-spinner {
+            display: none;
+        }
+        .loading .loading-spinner {
+            display: inline-block;
+        }
+        .loading .content {
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h1><i class="fas fa-chart-line text-primary"></i> Trading Dashboard</h1>
+                    <div>
+                        <button class="btn btn-success me-2" onclick="createSession()">
+                            <i class="fas fa-plus"></i> New Session
+                        </button>
+                        <button class="btn btn-primary" onclick="createTrade()">
+                            <i class="fas fa-trade"></i> New Trade
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">Total Trades</h5>
+                        <h2 class="text-primary" id="total-trades">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">Success Rate</h5>
+                        <h2 class="text-success" id="success-rate">0%</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">AI Validation Rate</h5>
+                        <h2 class="text-info" id="ai-validation-rate">0%</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">24h Trades</h5>
+                        <h2 class="text-warning" id="recent-trades">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="row">
+            <!-- Trading Sessions -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5><i class="fas fa-play-circle"></i> Trading Sessions</h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadSessions()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <div class="card-body loading" id="sessions-container">
+                        <div class="loading-spinner">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div class="content" id="sessions-list">
+                            <!-- Sessions will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Trades -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5><i class="fas fa-history"></i> Recent Trades</h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadTrades()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    <div class="card-body loading" id="trades-container">
+                        <div class="loading-spinner">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div class="content" id="trades-list">
+                            <!-- Trades will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row mt-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-area"></i> Trading Performance</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="performanceChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-pie"></i> Trade Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="distributionChart" width="200" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Modal -->
+    <div class="modal fade" id="sessionModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="sessionModalTitle">New Trading Session</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sessionForm">
+                        <div class="mb-3">
+                            <label for="sessionName" class="form-label">Session Name</label>
+                            <input type="text" class="form-control" id="sessionName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="maxTrades" class="form-label">Max Trades per Session</label>
+                            <input type="number" class="form-control" id="maxTrades" value="100" min="1" max="1000">
+                        </div>
+                        <div class="mb-3">
+                            <label for="minInterval" class="form-label">Min Interval (minutes)</label>
+                            <input type="number" class="form-control" id="minInterval" value="5" min="1" max="60">
+                        </div>
+                        <div class="mb-3">
+                            <label for="maxDailyLoss" class="form-label">Max Daily Loss ($)</label>
+                            <input type="number" class="form-control" id="maxDailyLoss" value="100" min="0" step="0.01">
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetProfit" class="form-label">Target Profit (%)</label>
+                            <input type="number" class="form-control" id="targetProfit" value="5" min="0" max="100" step="0.1">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSession()">Save Session</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trade Modal -->
+    <div class="modal fade" id="tradeModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tradeModalTitle">New Trade</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="tradeForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tradeSymbol" class="form-label">Symbol</label>
+                                    <select class="form-control" id="tradeSymbol" required>
+                                        <option value="">Select Symbol</option>
+                                        <option value="BTC/USDT">BTC/USDT</option>
+                                        <option value="ETH/USDT">ETH/USDT</option>
+                                        <option value="BNB/USDT">BNB/USDT</option>
+                                        <option value="ADA/USDT">ADA/USDT</option>
+                                        <option value="DOT/USDT">DOT/USDT</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="tradeSide" class="form-label">Side</label>
+                                    <select class="form-control" id="tradeSide" required>
+                                        <option value="buy">Buy</option>
+                                        <option value="sell">Sell</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="tradeQuantity" class="form-label">Quantity</label>
+                                    <input type="number" class="form-control" id="tradeQuantity" required min="0" step="0.000001">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tradeExchange" class="form-label">Exchange</label>
+                                    <select class="form-control" id="tradeExchange" required>
+                                        <option value="">Select Exchange</option>
+                                        <option value="1">Binance</option>
+                                        <option value="2">KuCoin</option>
+                                        <option value="3">BingX</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="tradeOrderType" class="form-label">Order Type</label>
+                                    <select class="form-control" id="tradeOrderType" required>
+                                        <option value="market">Market</option>
+                                        <option value="limit">Limit</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3" id="priceField" style="display: none;">
+                                    <label for="tradePrice" class="form-label">Price</label>
+                                    <input type="number" class="form-control" id="tradePrice" min="0" step="0.01">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>AI Validation:</strong> This trade will be validated by all configured AI agents before execution.
+                            A minimum 5-minute interval is required between trades for the same symbol.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveTrade()">Execute Trade</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trade Details Modal -->
+    <div class="modal fade" id="tradeDetailsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Trade Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="tradeDetailsContent">
+                    <!-- Trade details will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+    <script>
+        // Global variables
+        let performanceChart, distributionChart;
+        let currentSessionId = null;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatistics();
+            loadSessions();
+            loadTrades();
+            initializeCharts();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // Show/hide price field based on order type
+            document.getElementById('tradeOrderType').addEventListener('change', function() {
+                const priceField = document.getElementById('priceField');
+                if (this.value === 'limit') {
+                    priceField.style.display = 'block';
+                    document.getElementById('tradePrice').required = true;
+                } else {
+                    priceField.style.display = 'none';
+                    document.getElementById('tradePrice').required = false;
+                }
+            });
+        }
+
+        function initializeCharts() {
+            // Performance Chart
+            const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+            performanceChart = new Chart(performanceCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Distribution Chart
+            const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+            distributionChart = new Chart(distributionCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Buy', 'Sell'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: [
+                            'rgba(40, 167, 69, 0.8)',
+                            'rgba(220, 53, 69, 0.8)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/trading/statistics');
+                const stats = await response.json();
+                
+                document.getElementById('total-trades').textContent = stats.total_trades;
+                document.getElementById('success-rate').textContent = stats.success_rate.toFixed(1) + '%';
+                document.getElementById('ai-validation-rate').textContent = stats.ai_validation_rate.toFixed(1) + '%';
+                document.getElementById('recent-trades').textContent = stats.recent_trades_24h;
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+
+        async function loadSessions() {
+            const container = document.getElementById('sessions-container');
+            container.classList.add('loading');
+            
+            try {
+                const response = await fetch('/api/trading/sessions');
+                const sessions = await response.json();
+                displaySessions(sessions);
+            } catch (error) {
+                console.error('Error loading sessions:', error);
+                document.getElementById('sessions-list').innerHTML = 
+                    '<div class="alert alert-danger">Error loading sessions</div>';
+            } finally {
+                container.classList.remove('loading');
+            }
+        }
+
+        function displaySessions(sessions) {
+            const container = document.getElementById('sessions-list');
+            
+            if (sessions.length === 0) {
+                container.innerHTML = '<p class="text-muted">No trading sessions found</p>';
+                return;
+            }
+
+            const html = sessions.map(session => `
+                <div class="d-flex justify-content-between align-items-center mb-3 p-3 border rounded">
+                    <div>
+                        <h6 class="mb-1">${session.session_name}</h6>
+                        <div class="d-flex gap-2">
+                            <span class="badge bg-${session.status === 'active' ? 'success' : 'secondary'} status-badge">
+                                ${session.status}
+                            </span>
+                            <small class="text-muted">${session.total_trades} trades</small>
+                            <small class="text-muted">${session.min_interval_minutes}min interval</small>
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="text-${session.total_profit_loss >= 0 ? 'success' : 'danger'} fw-bold">
+                            $${session.total_profit_loss.toFixed(2)}
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="editSession(${session.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteSession(${session.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+
+        async function loadTrades() {
+            const container = document.getElementById('trades-container');
+            container.classList.add('loading');
+            
+            try {
+                const response = await fetch('/api/trading/trades?limit=10');
+                const trades = await response.json();
+                displayTrades(trades);
+                updateCharts(trades);
+            } catch (error) {
+                console.error('Error loading trades:', error);
+                document.getElementById('trades-list').innerHTML = 
+                    '<div class="alert alert-danger">Error loading trades</div>';
+            } finally {
+                container.classList.remove('loading');
+            }
+        }
+
+        function displayTrades(trades) {
+            const container = document.getElementById('trades-list');
+            
+            if (trades.length === 0) {
+                container.innerHTML = '<p class="text-muted">No trades found</p>';
+                return;
+            }
+
+            const html = trades.map(trade => `
+                <div class="trade-item ${trade.side.toLowerCase()} ${trade.ai_validation_passed ? 'ai-approved' : 'ai-rejected'}" 
+                     onclick="showTradeDetails(${trade.id})">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${trade.symbol}</strong>
+                            <span class="badge bg-${trade.side === 'buy' ? 'success' : 'danger'} ms-2">
+                                ${trade.side.toUpperCase()}
+                            </span>
+                            <span class="badge bg-${trade.status === 'executed' ? 'success' : 'warning'} ms-1">
+                                ${trade.status}
+                            </span>
+                        </div>
+                        <div class="text-end">
+                            <div>${trade.quantity} @ $${trade.price}</div>
+                            <small class="text-muted">
+                                <i class="fas fa-${trade.ai_validation_passed ? 'check text-success' : 'times text-danger'}"></i>
+                                ${trade.ai_consensus || 'N/A'}
+                            </small>
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        ${new Date(trade.created_at).toLocaleString()}
+                    </small>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+
+        function updateCharts(trades) {
+            // Update performance chart
+            const labels = trades.map(t => new Date(t.created_at).toLocaleDateString()).reverse();
+            const data = trades.map(t => t.total_cost).reverse();
+            
+            performanceChart.data.labels = labels;
+            performanceChart.data.datasets[0].data = data;
+            performanceChart.update();
+
+            // Update distribution chart
+            const buyCount = trades.filter(t => t.side === 'buy').length;
+            const sellCount = trades.filter(t => t.side === 'sell').length;
+            
+            distributionChart.data.datasets[0].data = [buyCount, sellCount];
+            distributionChart.update();
+        }
+
+        function createSession() {
+            document.getElementById('sessionModalTitle').textContent = 'New Trading Session';
+            document.getElementById('sessionForm').reset();
+            currentSessionId = null;
+            new bootstrap.Modal(document.getElementById('sessionModal')).show();
+        }
+
+        function editSession(sessionId) {
+            // Load session data and populate form
+            currentSessionId = sessionId;
+            document.getElementById('sessionModalTitle').textContent = 'Edit Trading Session';
+            // TODO: Load session data
+            new bootstrap.Modal(document.getElementById('sessionModal')).show();
+        }
+
+        async function saveSession() {
+            const formData = {
+                session_name: document.getElementById('sessionName').value,
+                max_trades_per_session: parseInt(document.getElementById('maxTrades').value),
+                min_interval_minutes: parseInt(document.getElementById('minInterval').value),
+                max_daily_loss: parseFloat(document.getElementById('maxDailyLoss').value),
+                target_profit: parseFloat(document.getElementById('targetProfit').value)
+            };
+
+            try {
+                const url = currentSessionId ? 
+                    `/api/trading/sessions/${currentSessionId}` : 
+                    '/api/trading/sessions';
+                
+                const method = currentSessionId ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('sessionModal')).hide();
+                    loadSessions();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error saving session:', error);
+                alert('Error saving session');
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            if (!confirm('Are you sure you want to delete this session?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/trading/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadSessions();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error deleting session:', error);
+                alert('Error deleting session');
+            }
+        }
+
+        function createTrade() {
+            document.getElementById('tradeModalTitle').textContent = 'New Trade';
+            document.getElementById('tradeForm').reset();
+            document.getElementById('priceField').style.display = 'none';
+            new bootstrap.Modal(document.getElementById('tradeModal')).show();
+        }
+
+        async function saveTrade() {
+            const formData = {
+                symbol: document.getElementById('tradeSymbol').value,
+                side: document.getElementById('tradeSide').value,
+                quantity: parseFloat(document.getElementById('tradeQuantity').value),
+                order_type: document.getElementById('tradeOrderType').value,
+                exchange_id: parseInt(document.getElementById('tradeExchange').value),
+                price: document.getElementById('tradeOrderType').value === 'limit' ? 
+                    parseFloat(document.getElementById('tradePrice').value) : null
+            };
+
+            try {
+                const response = await fetch('/api/trading/trades', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    const trade = await response.json();
+                    bootstrap.Modal.getInstance(document.getElementById('tradeModal')).hide();
+                    loadTrades();
+                    loadStatistics();
+                    
+                    // Show success message
+                    if (trade.ai_validation_passed) {
+                        alert('Trade created successfully! AI validation: APPROVED');
+                    } else {
+                        alert('Trade created but AI validation: REJECTED');
+                    }
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error creating trade:', error);
+                alert('Error creating trade');
+            }
+        }
+
+        async function showTradeDetails(tradeId) {
+            try {
+                const response = await fetch(`/api/trading/trades/${tradeId}/validations`);
+                const validations = await response.json();
+                
+                const content = document.getElementById('tradeDetailsContent');
+                content.innerHTML = `
+                    <h6>AI Validation Results</h6>
+                    ${validations.map(v => `
+                        <div class="border rounded p-3 mb-2">
+                            <div class="d-flex justify-content-between">
+                                <strong>Agent ${v.ai_agent_id}</strong>
+                                <span class="badge bg-${v.decision === 'YES' ? 'success' : 'danger'}">
+                                    ${v.decision}
+                                </span>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-muted">Confidence: ${v.confidence_score || 'N/A'}</small>
+                            </div>
+                            <div class="mt-1">
+                                <small>${v.reasoning || 'No reasoning provided'}</small>
+                            </div>
+                        </div>
+                    `).join('')}
+                `;
+                
+                new bootstrap.Modal(document.getElementById('tradeDetailsModal')).show();
+            } catch (error) {
+                console.error('Error loading trade details:', error);
+                alert('Error loading trade details');
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            loadStatistics();
+            loadSessions();
+            loadTrades();
+        }, 30000);
+    </script>
+</body>
+</html>

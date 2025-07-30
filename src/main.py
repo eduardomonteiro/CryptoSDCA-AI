@@ -52,6 +52,7 @@ from src.core.dca_engine import DCAEngine
 from src.core.exchange_manager import ExchangeManager
 from src.core.risk_manager import RiskManager
 from src.core.sentiment_analyzer import SentimentAnalyzer
+from src.core.indicators import TechnicalIndicators
 
 # --------------------------------------------------------------------------- #
 # Settings & globals
@@ -72,14 +73,18 @@ risk_manager:    Optional[RiskManager]    = None
 # --------------------------------------------------------------------------- #
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    global exchange_manager, ai_validator, dca_engine, sentiment_analyzer, risk_manager
-
-    logger.info("🚀 Booting CryptoSDCA-AI …")
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
     try:
-        await init_database()
+        logger.info("🚀 Booting CryptoSDCA-AI …")
+        
+        # Initialize database
+        if not await init_database():
+            logger.error("❌ Database initialization failed")
+            raise RuntimeError("Database initialization failed")
         logger.info("✅  DB ready")
 
+        # Initialize core components
         exchange_manager = ExchangeManager()
         await exchange_manager.initialize()
 
@@ -99,6 +104,23 @@ async def lifespan(_: FastAPI):
             risk_manager=risk_manager,
         )
         await dca_engine.initialize()
+
+        # Initialize global instances for trading API
+        from api.routes.trading import (
+            ai_validator as trading_ai_validator,
+            indicators as trading_indicators,
+            sentiment_analyzer as trading_sentiment_analyzer,
+            risk_manager as trading_risk_manager,
+            exchange_manager as trading_exchange_manager
+        )
+        
+        # Set global instances
+        trading_ai_validator = ai_validator
+        trading_indicators = TechnicalIndicators()
+        await trading_indicators.initialize()
+        trading_sentiment_analyzer = sentiment_analyzer
+        trading_risk_manager = risk_manager
+        trading_exchange_manager = exchange_manager
 
         if not settings.test_mode:
             asyncio.create_task(dca_engine.start_trading_loop())
