@@ -69,7 +69,7 @@
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">
+            <a class="navbar-brand" href="/dashboard">
                 <i class="fas fa-robot me-2"></i>CryptoSDCA-AI
             </a>
             
@@ -80,16 +80,20 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/"><i class="fas fa-tachometer-alt me-1"></i>Dashboard</a>
+                        <a class="nav-link" href="/dashboard"><i class="fas fa-tachometer-alt me-1"></i>Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/history"><i class="fas fa-history me-1"></i>History</a>
+                        <a class="nav-link" href="/admin/history"><i class="fas fa-history me-1"></i>History</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/manager">
-                           <i class="fas fa-cog me-1"></i>Manager
-                        </a>
-                      </li>                      
+                        <a class="nav-link" href="/admin/exchanges"><i class="fas fa-exchange-alt me-1"></i>Exchanges</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/admin/ai-agents"><i class="fas fa-brain me-1"></i>AI Agents</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/admin/settings"><i class="fas fa-cog me-1"></i>Settings</a>
+                    </li>
                 </ul>
                 
                 <ul class="navbar-nav">
@@ -98,9 +102,10 @@
                             <i class="fas fa-user me-1"></i>Admin
                         </a>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="/manager/profile"><i class="fas fa-user-edit me-1"></i>Profile</a></li>
+                            <li><a class="dropdown-item" href="/admin/profile"><i class="fas fa-user-edit me-1"></i>Profile</a></li>
+                            <li><a class="dropdown-item" href="/admin/users"><i class="fas fa-users me-1"></i>Users</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt me-1"></i>Logout</a></li>
+                            <li><a class="dropdown-item" href="/auth/logout"><i class="fas fa-sign-out-alt me-1"></i>Logout</a></li>
                         </ul>
                     </li>
                 </ul>
@@ -134,12 +139,28 @@
         
         function updateRealTimeData(data) {
             // Update profit/loss displays
-            if (data.type === 'portfolio_update') {
+            if (data.event === 'portfolio_update') {
                 updatePortfolioStats(data.data);
             }
             // Update order status
-            if (data.type === 'order_update') {
+            if (data.event === 'order_update') {
                 updateOrderStatus(data.data);
+            }
+        }
+        
+        function updatePortfolioStats(data) {
+            const profitElement = document.getElementById('total-profit');
+            if (profitElement && data.total_profit !== undefined) {
+                const profit = parseFloat(data.total_profit);
+                profitElement.textContent = profit >= 0 ? `+$${profit.toFixed(2)}` : `-$${Math.abs(profit).toFixed(2)}`;
+                profitElement.className = profit >= 0 ? 'profit-positive' : 'profit-negative';
+            }
+        }
+        
+        function updateOrderStatus(data) {
+            const ordersElement = document.getElementById('active-orders');
+            if (ordersElement && data.active_orders !== undefined) {
+                ordersElement.textContent = data.active_orders;
             }
         }
     </script>

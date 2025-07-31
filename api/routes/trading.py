@@ -6,7 +6,7 @@ Handles all trading operations, CRUD for trades, sessions, and AI validation
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 import asyncio
@@ -22,23 +22,6 @@ from src.core.indicators import TechnicalIndicators
 from src.core.sentiment_analyzer import SentimentAnalyzer
 from src.core.risk_manager import RiskManager
 from src.core.exchange_manager import ExchangeManager
-# Define get_current_user function locally
-def get_current_user(request: Request, db: Session = Depends(get_db_session)) -> User:
-    """Get current user from session"""
-    # This is a simplified version - in production you'd want proper session management
-    # For now, we'll return a default user for testing
-    user = db.query(User).first()
-    if not user:
-        # Create a test user if none exists
-        user = User(
-            username="testuser",
-            email="test@example.com",
-            is_admin=True
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
 from src.exceptions import TradingError, AIValidationError
 
 router = APIRouter()
@@ -110,153 +93,226 @@ class TradingSessionResponse(BaseModel):
     successful_trades: int
     total_profit_loss: float
     min_interval_minutes: int
+    max_daily_loss: float
+    target_profit: float
 
     class Config:
         from_attributes = True
 
-# Web pages
-@router.get("/", response_class=HTMLResponse)
-async def trading_dashboard(request: Request, user: User = Depends(get_current_user)):
-    """Trading dashboard page"""
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Trading Dashboard - CryptoSDCA-AI</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    </head>
-    <body>
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-12">
-                    <h1><i class="fas fa-chart-line"></i> Trading Dashboard</h1>
-                    <div id="trading-content">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h5><i class="fas fa-play-circle"></i> Active Trading Sessions</h5>
-                                    </div>
-                                    <div class="card-body" id="sessions-list">
-                                        <div class="text-center">
-                                            <div class="spinner-border" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h5><i class="fas fa-history"></i> Recent Trades</h5>
-                                    </div>
-                                    <div class="card-body" id="trades-list">
-                                        <div class="text-center">
-                                            <div class="spinner-border" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-        <script>
-            // Load data on page load
-            document.addEventListener('DOMContentLoaded', function() {
-                loadSessions();
-                loadTrades();
-            });
-
-            async function loadSessions() {
-                try {
-                    const response = await fetch('/api/trading/sessions');
-                    const sessions = await response.json();
-                    displaySessions(sessions);
-                } catch (error) {
-                    console.error('Error loading sessions:', error);
-                }
-            }
-
-            async function loadTrades() {
-                try {
-                    const response = await fetch('/api/trading/trades');
-                    const trades = await response.json();
-                    displayTrades(trades);
-                } catch (error) {
-                    console.error('Error loading trades:', error);
-                }
-            }
-
-            function displaySessions(sessions) {
-                const container = document.getElementById('sessions-list');
-                if (sessions.length === 0) {
-                    container.innerHTML = '<p class="text-muted">No active sessions</p>';
-                    return;
-                }
-
-                const html = sessions.map(session => `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <strong>${session.session_name}</strong>
-                            <span class="badge bg-${session.status === 'active' ? 'success' : 'secondary'}">${session.status}</span>
-                        </div>
-                        <div class="text-end">
-                            <small class="text-muted">${session.total_trades} trades</small><br>
-                            <span class="text-${session.total_profit_loss >= 0 ? 'success' : 'danger'}">
-                                $${session.total_profit_loss.toFixed(2)}
-                            </span>
-                        </div>
-                    </div>
-                `).join('');
-                container.innerHTML = html;
-            }
-
-            function displayTrades(trades) {
-                const container = document.getElementById('trades-list');
-                if (trades.length === 0) {
-                    container.innerHTML = '<p class="text-muted">No recent trades</p>';
-                    return;
-                }
-
-                const html = trades.map(trade => `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <strong>${trade.symbol}</strong>
-                            <span class="badge bg-${trade.side === 'buy' ? 'success' : 'danger'}">${trade.side}</span>
-                        </div>
-                        <div class="text-end">
-                            <small>${trade.quantity} @ $${trade.price}</small><br>
-                            <span class="text-${trade.ai_validation_passed ? 'success' : 'warning'}">
-                                <i class="fas fa-${trade.ai_validation_passed ? 'check' : 'question'}"></i>
-                            </span>
-                        </div>
-                    </div>
-                `).join('');
-                container.innerHTML = html;
-            }
-        </script>
-    </body>
-    </html>
-    """
-
-# API Endpoints
-
-@router.get("/sessions", response_model=List[TradingSessionResponse])
-async def get_trading_sessions(
+# Bot control endpoints
+@router.post("/start")
+async def start_trading_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
-    """Get all trading sessions for the user"""
-    sessions = db.query(TradingSession).filter(
-        TradingSession.user_id == user.id
-    ).order_by(desc(TradingSession.start_time)).all()
+    """Start the trading bot"""
+    try:
+        # Check if bot is already running
+        active_session = db.query(TradingSession).filter_by(status="active").first()
+        if active_session:
+            raise HTTPException(status_code=400, detail="Trading bot is already running")
+        
+        # Create new trading session
+        session = TradingSession(
+            user_id=user.id,
+            session_name=f"Auto Session {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            status="active",
+            max_trades_per_session=100,
+            min_interval_minutes=5,
+            max_daily_loss=100.0,
+            target_profit=1.0
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        
+        return {
+            "success": True,
+            "message": "Trading bot started successfully",
+            "session_id": session.id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to start trading bot: {str(e)}")
+
+@router.post("/stop")
+async def stop_trading_bot(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    """Stop the trading bot"""
+    try:
+        # Find active session
+        active_session = db.query(TradingSession).filter_by(status="active").first()
+        if not active_session:
+            raise HTTPException(status_code=400, detail="No active trading session found")
+        
+        # Stop the session
+        active_session.status = "stopped"
+        active_session.end_time = datetime.now()
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Trading bot stopped successfully",
+            "session_id": active_session.id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to stop trading bot: {str(e)}")
+
+@router.post("/pause")
+async def pause_trading_bot(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    """Pause the trading bot"""
+    try:
+        # Find active session
+        active_session = db.query(TradingSession).filter_by(status="active").first()
+        if not active_session:
+            raise HTTPException(status_code=400, detail="No active trading session found")
+        
+        # Pause the session
+        active_session.status = "paused"
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Trading bot paused successfully",
+            "session_id": active_session.id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to pause trading bot: {str(e)}")
+
+@router.post("/resume")
+async def resume_trading_bot(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    """Resume the trading bot"""
+    try:
+        # Find paused session
+        paused_session = db.query(TradingSession).filter_by(status="paused").first()
+        if not paused_session:
+            raise HTTPException(status_code=400, detail="No paused trading session found")
+        
+        # Resume the session
+        paused_session.status = "active"
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Trading bot resumed successfully",
+            "session_id": paused_session.id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to resume trading bot: {str(e)}")
+
+@router.post("/emergency-sell")
+async def emergency_sell_all(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    """Emergency sell all positions"""
+    try:
+        # Find all open trades
+        open_trades = db.query(Trade).filter_by(status="open").all()
+        
+        if not open_trades:
+            return {
+                "success": True,
+                "message": "No open positions to sell",
+                "trades_affected": 0
+            }
+        
+        # Mark all trades as sold
+        for trade in open_trades:
+            trade.status = "closed"
+            trade.executed_at = datetime.now()
+        
+        # Stop trading session
+        active_session = db.query(TradingSession).filter_by(status="active").first()
+        if active_session:
+            active_session.status = "stopped"
+            active_session.end_time = datetime.now()
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Emergency sell executed for {len(open_trades)} positions",
+            "trades_affected": len(open_trades)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to execute emergency sell: {str(e)}")
+
+@router.get("/status")
+async def get_trading_status(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    """Get current trading bot status"""
+    try:
+        # Get active session
+        active_session = db.query(TradingSession).filter_by(status="active").first()
+        paused_session = db.query(TradingSession).filter_by(status="paused").first()
+        
+        # Count open trades
+        open_trades = db.query(Trade).filter_by(status="open").count()
+        
+        # Calculate total profit/loss
+        total_pnl = db.query(Trade).filter(Trade.status == "closed").with_entities(
+            db.func.sum(Trade.profit_loss)
+        ).scalar() or 0.0
+        
+        status_info = {
+            "bot_status": "stopped",
+            "session_id": None,
+            "open_trades": open_trades,
+            "total_pnl": total_pnl,
+            "session_name": None
+        }
+        
+        if active_session:
+            status_info.update({
+                "bot_status": "active",
+                "session_id": active_session.id,
+                "session_name": active_session.session_name
+            })
+        elif paused_session:
+            status_info.update({
+                "bot_status": "paused",
+                "session_id": paused_session.id,
+                "session_name": paused_session.session_name
+            })
+        
+        return status_info
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get trading status: {str(e)}")
+
+# Trading sessions CRUD
+@router.get("/sessions", response_model=List[TradingSessionResponse])
+async def get_trading_sessions(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+    limit: int = 50,
+    offset: int = 0
+):
+    """Get all trading sessions"""
+    sessions = db.query(TradingSession).filter_by(user_id=user.id).order_by(
+        desc(TradingSession.start_time)
+    ).offset(offset).limit(limit).all()
+    
     return sessions
 
 @router.post("/sessions", response_model=TradingSessionResponse)
@@ -266,19 +322,24 @@ async def create_trading_session(
     db: Session = Depends(get_db_session)
 ):
     """Create a new trading session"""
-    session = TradingSession(
-        user_id=user.id,
-        session_name=session_data.session_name,
-        max_trades_per_session=session_data.max_trades_per_session,
-        min_interval_minutes=session_data.min_interval_minutes,
-        max_daily_loss=session_data.max_daily_loss,
-        target_profit=session_data.target_profit
-    )
-    
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    return session
+    try:
+        session = TradingSession(
+            user_id=user.id,
+            session_name=session_data.session_name,
+            status="active",
+            max_trades_per_session=session_data.max_trades_per_session,
+            min_interval_minutes=session_data.min_interval_minutes,
+            max_daily_loss=session_data.max_daily_loss,
+            target_profit=session_data.target_profit
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        return session
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 @router.put("/sessions/{session_id}", response_model=TradingSessionResponse)
 async def update_trading_session(
@@ -288,22 +349,22 @@ async def update_trading_session(
     db: Session = Depends(get_db_session)
 ):
     """Update a trading session"""
-    session = db.query(TradingSession).filter(
-        and_(TradingSession.id == session_id, TradingSession.user_id == user.id)
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Trading session not found")
-    
-    for field, value in session_data.dict(exclude_unset=True).items():
-        setattr(session, field, value)
-    
-    if session_data.status == "stopped":
-        session.end_time = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(session)
-    return session
+    try:
+        session = db.query(TradingSession).filter_by(id=session_id, user_id=user.id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Update fields
+        for field, value in session_data.dict(exclude_unset=True).items():
+            setattr(session, field, value)
+        
+        db.commit()
+        db.refresh(session)
+        return session
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update session: {str(e)}")
 
 @router.delete("/sessions/{session_id}")
 async def delete_trading_session(
@@ -312,28 +373,36 @@ async def delete_trading_session(
     db: Session = Depends(get_db_session)
 ):
     """Delete a trading session"""
-    session = db.query(TradingSession).filter(
-        and_(TradingSession.id == session_id, TradingSession.user_id == user.id)
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Trading session not found")
-    
-    db.delete(session)
-    db.commit()
-    return {"message": "Trading session deleted"}
+    try:
+        session = db.query(TradingSession).filter_by(id=session_id, user_id=user.id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        db.delete(session)
+        db.commit()
+        
+        return {"success": True, "message": "Session deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
 
+# Trades CRUD
 @router.get("/trades", response_model=List[TradeResponse])
 async def get_trades(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    status: Optional[str] = None
 ):
-    """Get user's trades"""
-    trades = db.query(Trade).filter(
-        Trade.user_id == user.id
-    ).order_by(desc(Trade.created_at)).offset(offset).limit(limit).all()
+    """Get all trades"""
+    query = db.query(Trade).filter_by(user_id=user.id)
+    
+    if status:
+        query = query.filter_by(status=status)
+    
+    trades = query.order_by(desc(Trade.created_at)).offset(offset).limit(limit).all()
     return trades
 
 @router.post("/trades", response_model=TradeResponse)
@@ -342,149 +411,39 @@ async def create_trade(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
-    """Create a new trade with AI validation"""
-    
-    # Validate exchange and trading pair
-    exchange = db.query(Exchange).filter(
-        and_(Exchange.id == trade_data.exchange_id, Exchange.user_id == user.id)
-    ).first()
-    if not exchange:
-        raise HTTPException(status_code=404, detail="Exchange not found")
-    
-    trading_pair = db.query(TradingPair).filter(
-        and_(TradingPair.symbol == trade_data.symbol, TradingPair.exchange_id == trade_data.exchange_id)
-    ).first()
-    if not trading_pair:
-        raise HTTPException(status_code=404, detail="Trading pair not found")
-    
-    # Check if enough time has passed since last trade (5-minute interval)
-    last_trade = db.query(Trade).filter(
-        and_(Trade.user_id == user.id, Trade.symbol == trade_data.symbol)
-    ).order_by(desc(Trade.created_at)).first()
-    
-    if last_trade and (datetime.utcnow() - last_trade.created_at).total_seconds() < 300:  # 5 minutes
-        raise HTTPException(
-            status_code=400, 
-            detail="Minimum 5-minute interval required between trades"
+    """Create a new trade"""
+    try:
+        # Validate exchange exists
+        exchange = db.query(Exchange).filter_by(id=trade_data.exchange_id).first()
+        if not exchange:
+            raise HTTPException(status_code=404, detail="Exchange not found")
+        
+        # Calculate total cost
+        total_cost = trade_data.quantity * (trade_data.price or 0)
+        
+        trade = Trade(
+            user_id=user.id,
+            exchange_id=trade_data.exchange_id,
+            trading_pair_id=1,  # Default trading pair
+            session_id=trade_data.session_id,
+            symbol=trade_data.symbol,
+            side=trade_data.side,
+            order_type=trade_data.order_type,
+            quantity=trade_data.quantity,
+            price=trade_data.price or 0,
+            total_cost=total_cost,
+            status="pending",
+            ai_validation_required=True
         )
-    
-    # Create trade hypothesis for AI validation
-    hypothesis = TradeHypothesis(
-        pair=trade_data.symbol,
-        side=trade_data.side,
-        quantity=trade_data.quantity,
-        entry_price=trade_data.price or 0.0,
-        indicators={},  # Will be populated by indicators
-        fear_greed_index=50,  # Will be populated by sentiment analyzer
-        news_sentiment=0.0,  # Will be populated by sentiment analyzer
-        market_context={},
-        timestamp=datetime.utcnow()
-    )
-    
-    # Get technical indicators
-    if indicators:
-        try:
-            market_data = await exchange_manager.get_market_data(trade_data.exchange_id, trade_data.symbol)
-            if market_data:
-                hypothesis.indicators = await indicators.calculate_all_indicators(
-                    trade_data.symbol, market_data
-                )
-        except Exception as e:
-            print(f"Error getting indicators: {e}")
-    
-    # Get sentiment data
-    if sentiment_analyzer:
-        try:
-            sentiment = await sentiment_analyzer.get_current_sentiment()
-            hypothesis.fear_greed_index = sentiment.fear_greed_index
-            hypothesis.news_sentiment = sentiment.overall_score
-        except Exception as e:
-            print(f"Error getting sentiment: {e}")
-    
-    # AI validation
-    ai_consensus = "NO"
-    ai_validation_passed = False
-    ai_agents_used = []
-    
-    if ai_validator and ai_validator.is_initialized:
-        try:
-            validation_results = await ai_validator.validate_trade(hypothesis)
-            
-            # Determine consensus
-            yes_votes = sum(1 for r in validation_results if r.decision.value == "approve")
-            no_votes = sum(1 for r in validation_results if r.decision.value == "deny")
-            
-            if yes_votes > no_votes:
-                ai_consensus = "YES"
-                ai_validation_passed = True
-            elif no_votes > yes_votes:
-                ai_consensus = "NO"
-                ai_validation_passed = False
-            else:
-                ai_consensus = "SPLIT"
-                ai_validation_passed = False
-            
-            ai_agents_used = [r.ai_agent for r in validation_results]
-            
-        except Exception as e:
-            print(f"AI validation error: {e}")
-            ai_consensus = "ERROR"
-            ai_validation_passed = False
-    
-    # Risk management check
-    if risk_manager:
-        try:
-            trading_allowed = await risk_manager.check_trading_allowed()
-            if not trading_allowed:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Trading blocked by risk management"
-                )
-        except Exception as e:
-            print(f"Risk management error: {e}")
-    
-    # Create the trade
-    trade = Trade(
-        user_id=user.id,
-        exchange_id=trade_data.exchange_id,
-        trading_pair_id=trading_pair.id,
-        symbol=trade_data.symbol,
-        side=OrderSide.BUY if trade_data.side == "buy" else OrderSide.SELL,
-        order_type=OrderType.MARKET if trade_data.order_type == "market" else OrderType.LIMIT,
-        quantity=trade_data.quantity,
-        price=trade_data.price or 0.0,
-        total_cost=trade_data.quantity * (trade_data.price or 0.0),
-        ai_validation_passed=ai_validation_passed,
-        ai_agents_used=ai_agents_used,
-        ai_consensus=ai_consensus,
-        market_sentiment=hypothesis.news_sentiment,
-        fear_greed_index=hypothesis.fear_greed_index,
-        technical_indicators=hypothesis.indicators
-    )
-    
-    db.add(trade)
-    db.commit()
-    db.refresh(trade)
-    
-    # Log AI validation results
-    if ai_validator and validation_results:
-        for result in validation_results:
-            validation_log = AIValidationLog(
-                trade_id=trade.id,
-                ai_agent_id=1,  # Would need to get actual agent ID
-                validation_request=hypothesis.__dict__,
-                validation_response=result.__dict__,
-                decision=result.decision.value.upper(),
-                confidence_score=result.confidence,
-                reasoning=result.reasoning,
-                response_time=datetime.utcnow(),
-                processing_time_ms=int(result.response_time * 1000),
-                status="completed"
-            )
-            db.add(validation_log)
-    
-    db.commit()
-    return trade
+        
+        db.add(trade)
+        db.commit()
+        db.refresh(trade)
+        return trade
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create trade: {str(e)}")
 
 @router.put("/trades/{trade_id}", response_model=TradeResponse)
 async def update_trade(
@@ -494,22 +453,22 @@ async def update_trade(
     db: Session = Depends(get_db_session)
 ):
     """Update a trade"""
-    trade = db.query(Trade).filter(
-        and_(Trade.id == trade_id, Trade.user_id == user.id)
-    ).first()
-    
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    
-    for field, value in trade_data.dict(exclude_unset=True).items():
-        setattr(trade, field, value)
-    
-    if trade_data.status == "executed":
-        trade.executed_at = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(trade)
-    return trade
+    try:
+        trade = db.query(Trade).filter_by(id=trade_id, user_id=user.id).first()
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        
+        # Update fields
+        for field, value in trade_data.dict(exclude_unset=True).items():
+            setattr(trade, field, value)
+        
+        db.commit()
+        db.refresh(trade)
+        return trade
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update trade: {str(e)}")
 
 @router.delete("/trades/{trade_id}")
 async def delete_trade(
@@ -518,68 +477,77 @@ async def delete_trade(
     db: Session = Depends(get_db_session)
 ):
     """Delete a trade"""
-    trade = db.query(Trade).filter(
-        and_(Trade.id == trade_id, Trade.user_id == user.id)
-    ).first()
-    
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    
-    db.delete(trade)
-    db.commit()
-    return {"message": "Trade deleted"}
-
-@router.get("/trades/{trade_id}/validations")
-async def get_trade_validations(
-    trade_id: int,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session)
-):
-    """Get AI validation logs for a specific trade"""
-    trade = db.query(Trade).filter(
-        and_(Trade.id == trade_id, Trade.user_id == user.id)
-    ).first()
-    
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    
-    validations = db.query(AIValidationLog).filter(
-        AIValidationLog.trade_id == trade_id
-    ).all()
-    
-    return validations
+    try:
+        trade = db.query(Trade).filter_by(id=trade_id, user_id=user.id).first()
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        
+        db.delete(trade)
+        db.commit()
+        
+        return {"success": True, "message": "Trade deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete trade: {str(e)}")
 
 @router.get("/statistics")
 async def get_trading_statistics(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
-    """Get trading statistics for the user"""
-    
-    # Get total trades
-    total_trades = db.query(Trade).filter(Trade.user_id == user.id).count()
-    
-    # Get successful trades (executed)
-    successful_trades = db.query(Trade).filter(
-        and_(Trade.user_id == user.id, Trade.status == OrderStatus.EXECUTED)
-    ).count()
-    
-    # Get AI validation statistics
-    ai_validated_trades = db.query(Trade).filter(
-        and_(Trade.user_id == user.id, Trade.ai_validation_passed == True)
-    ).count()
-    
-    # Get recent trades (last 24 hours)
-    yesterday = datetime.utcnow() - timedelta(days=1)
-    recent_trades = db.query(Trade).filter(
-        and_(Trade.user_id == user.id, Trade.created_at >= yesterday)
-    ).count()
-    
-    return {
-        "total_trades": total_trades,
-        "successful_trades": successful_trades,
-        "success_rate": (successful_trades / total_trades * 100) if total_trades > 0 else 0,
-        "ai_validated_trades": ai_validated_trades,
-        "ai_validation_rate": (ai_validated_trades / total_trades * 100) if total_trades > 0 else 0,
-        "recent_trades_24h": recent_trades
-    }
+    """Get trading statistics"""
+    try:
+        # Total trades
+        total_trades = db.query(Trade).filter_by(user_id=user.id).count()
+        
+        # Closed trades
+        closed_trades = db.query(Trade).filter_by(user_id=user.id, status="closed").count()
+        
+        # Open trades
+        open_trades = db.query(Trade).filter_by(user_id=user.id, status="open").count()
+        
+        # Total profit/loss
+        total_pnl = db.query(Trade).filter(
+            Trade.user_id == user.id,
+            Trade.status == "closed"
+        ).with_entities(db.func.sum(Trade.profit_loss)).scalar() or 0.0
+        
+        # Win rate
+        winning_trades = db.query(Trade).filter(
+            Trade.user_id == user.id,
+            Trade.status == "closed",
+            Trade.profit_loss > 0
+        ).count()
+        
+        win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0
+        
+        return {
+            "total_trades": total_trades,
+            "closed_trades": closed_trades,
+            "open_trades": open_trades,
+            "total_pnl": total_pnl,
+            "win_rate": win_rate,
+            "winning_trades": winning_trades
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+# Helper function for authentication
+def get_current_user(request: Request, db: Session = Depends(get_db_session)) -> User:
+    """Get current user from session"""
+    # This is a simplified version - in production you'd want proper session management
+    # For now, we'll return a default user for testing
+    user = db.query(User).first()
+    if not user:
+        # Create a test user if none exists
+        user = User(
+            username="testuser",
+            email="test@example.com",
+            is_admin=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user

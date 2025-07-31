@@ -125,15 +125,15 @@ async def init_database() -> bool:
 
 
 async def create_initial_data():
-    """Cria dados iniciais necessários"""
+    """Create only essential initial data - no fake trading data"""
     try:
         db = SessionLocal()
         
-        # Importar modelos necessários
+        # Import necessary models
         from src.models.models import User, SystemSettings
         import bcrypt
         
-        # Criar usuário admin padrão se não existir
+        # Create default admin user if it doesn't exist
         existing_user = db.query(User).filter_by(username="admin").first()
         if not existing_user:
             password_hash = bcrypt.hashpw("bot123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -145,18 +145,18 @@ async def create_initial_data():
                 is_active=True
             )
             db.add(admin_user)
-            logger.info("Created default admin user")
-
-        # Criar configurações padrão do sistema se não existirem
-        default_settings = [
-            ("daily_profit_target", "1.0", "float", "Meta de lucro diária (%)", "trading"),
-            ("global_stop_loss", "-3.0", "float", "Stop loss global (%)", "trading"),
-            ("max_operation_duration_hours", "72", "int", "Duração máxima da operação (horas)", "trading"),
-            ("min_pairs_count", "3", "int", "Número mínimo de pares simultâneos", "trading"),
-            ("paper_trading", "true", "bool", "Modo paper trading ativo", "trading"),
+            logger.info("✅ Created default admin user (admin/bot123)")
+        
+        # Create basic system settings if they don't exist
+        basic_settings = [
+            ("paper_trading", "true", "bool", "Paper trading mode", "trading"),
+            ("default_profit_target", "1.0", "float", "Default profit target (%)", "trading"),
+            ("default_stop_loss", "-3.0", "float", "Default stop loss (%)", "trading"),
+            ("max_operation_duration_hours", "72", "int", "Maximum operation duration (hours)", "trading"),
+            ("min_pairs_count", "3", "int", "Minimum simultaneous pairs", "trading"),
         ]
         
-        for key, value, value_type, description, category in default_settings:
+        for key, value, value_type, description, category in basic_settings:
             existing_setting = db.query(SystemSettings).filter_by(key=key).first()
             if not existing_setting:
                 setting = SystemSettings(
@@ -170,10 +170,13 @@ async def create_initial_data():
         
         db.commit()
         db.close()
-        logger.info("Initial data created successfully")
+        logger.info("✅ Basic system settings created")
         
     except Exception as e:
-        logger.error(f"Failed to create initial data: {e}")
+        logger.error(f"❌ Failed to create initial data: {e}")
+        if 'db' in locals():
+            db.rollback()
+            db.close()
 
 
 async def close_database():
