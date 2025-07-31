@@ -1,455 +1,195 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Agents Management - CryptoSDCA-AI</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .admin-card {
-            background: white;
-            border-radius: 1rem;
-            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
-        }
-        .table th {
-            background-color: #f8f9fa;
-            border-top: none;
-        }
-        .ai-status {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        .status-active { background-color: #28a745; }
-        .status-inactive { background-color: #dc3545; }
-        .status-testing { background-color: #ffc107; }
-    </style>
-</head>
-<body class="bg-light">
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/admin">
-                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI Admin
-            </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/admin">
-                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
-                </a>
-                <a class="nav-link" href="/admin/users">
-                    <i class="fas fa-users me-1"></i>Users
-                </a>
-                <a class="nav-link" href="/admin/exchanges">
-                    <i class="fas fa-exchange-alt me-1"></i>Exchanges
-                </a>
-                <a class="nav-link active" href="/admin/ai-agents">
-                    <i class="fas fa-brain me-1"></i>AI Agents
-                </a>
-                <a class="nav-link" href="/admin/system-config">
-                    <i class="fas fa-cogs me-1"></i>System Config
-                </a>
-                <a class="nav-link" href="/auth/logout">
-                    <i class="fas fa-sign-out-alt me-1"></i>Logout
-                </a>
-            </div>
-        </div>
-    </nav>
+{% extends "base.html" %}
 
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="fas fa-brain me-2"></i>AI Agents Management</h2>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAIAgentModal">
-                <i class="fas fa-plus me-2"></i>Add AI Agent
-            </button>
-        </div>
+{% block title %}AI Agents Management - CryptoSDCA-AI{% endblock %}
 
-        <!-- AI Agents Statistics -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-primary">{{ stats.ai_agents.total }}</h4>
-                    <p class="text-muted mb-0">Total AI Agents</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-success">{{ stats.ai_agents.active }}</h4>
-                    <p class="text-muted mb-0">Active Agents</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-info">{{ stats.ai_agents.m365_copilot }}</h4>
-                    <p class="text-muted mb-0">M365 Copilot</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-warning">{{ stats.ai_agents.perplexity }}</h4>
-                    <p class="text-muted mb-0">Perplexity</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- AI Agents Table -->
-        <div class="admin-card p-4">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Name</th>
-                            <th>Platform</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>API Status</th>
-                            <th>Last Used</th>
-                            <th>Success Rate</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for agent in ai_agents %}
-                        <tr>
-                            <td>{{ agent.id }}</td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2">
-                                        <i class="fas fa-robot"></i>
-                                    </div>
-                                    <div>
-                                        <strong>{{ agent.name }}</strong>
-                                        <br>
-                                        <small class="text-muted">{{ agent.description }}</small>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="badge {% if agent.platform == 'm365_copilot' %}bg-info{% else %}bg-warning{% endif %}">
-                                    {{ agent.platform.replace('_', ' ').title() }}
-                                </span>
-                            </td>
-                            <td>{{ agent.role }}</td>
-                            <td>
-                                <span class="ai-status status-{{ agent.status }}"></span>
-                                <span class="badge {% if agent.status == 'active' %}bg-success{% elif agent.status == 'inactive' %}bg-danger{% else %}bg-warning{% endif %}">
-                                    {{ agent.status.title() }}
-                                </span>
-                            </td>
-                            <td>
-                                <span class="badge {% if agent.api_status == 'connected' %}bg-success{% elif agent.api_status == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
-                                    {{ agent.api_status.title() }}
-                                </span>
-                            </td>
-                            <td>{{ agent.last_used.strftime('%Y-%m-%d %H:%M') if agent.last_used else 'Never' }}</td>
-                            <td>
-                                <div class="progress" style="height: 20px;">
-                                    <div class="progress-bar {% if agent.success_rate >= 80 %}bg-success{% elif agent.success_rate >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
-                                         style="width: {{ agent.success_rate }}%">
-                                        {{ "%.1f"|format(agent.success_rate) }}%
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="btn-group" role="group">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="editAIAgent({{ agent.id }})">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success" onclick="testAIAgent({{ agent.id }})">
-                                        <i class="fas fa-play"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info" onclick="viewAIAgentHistory({{ agent.id }})">
-                                        <i class="fas fa-history"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteAIAgent({{ agent.id }})">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add AI Agent Modal -->
-    <div class="modal fade" id="addAIAgentModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New AI Agent</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="add-ai-agent-form">
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="agent-name" class="form-label">Agent Name</label>
-                                <input type="text" class="form-control" id="agent-name" name="name" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="agent-platform" class="form-label">Platform</label>
-                                <select class="form-select" id="agent-platform" name="platform" required>
-                                    <option value="">Select Platform</option>
-                                    <option value="m365_copilot">M365 Copilot</option>
-                                    <option value="perplexity">Perplexity API</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="agent-role" class="form-label">Role</label>
-                                <input type="text" class="form-control" id="agent-role" name="role" 
-                                       placeholder="e.g., Technical Analyst, Risk Manager" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="agent-priority" class="form-label">Priority</label>
-                                <select class="form-select" id="agent-priority" name="priority" required>
-                                    <option value="1">Primary</option>
-                                    <option value="2">Secondary</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="agent-description" class="form-label">Description</label>
-                            <textarea class="form-control" id="agent-description" name="description" rows="3" 
-                                      placeholder="Describe the agent's role and responsibilities"></textarea>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="api-url" class="form-label">API URL</label>
-                                <input type="url" class="form-control" id="api-url" name="api_url" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="api-key" class="form-label">API Key</label>
-                                <input type="password" class="form-control" id="api-key" name="api_key" required>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="custom-prompt" class="form-label">Custom Prompt Template</label>
-                            <textarea class="form-control" id="custom-prompt" name="custom_prompt" rows="4" 
-                                      placeholder="Custom prompt template for this agent (optional)"></textarea>
-                            <small class="form-text text-muted">
-                                Leave empty to use default prompt. Use placeholders: {PAIR}, {SIDE}, {SIZE}, {CONTEXT}
-                            </small>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="is-active" name="is_active" checked>
-                                <label class="form-check-label" for="is-active">
-                                    Active Agent
-                                </label>
-                            </div>
-                        </div>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>AI Agent Configuration:</strong> Each agent will be used for trade validation. 
-                            Make sure the API credentials are correct and the agent has the necessary permissions.
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Add AI Agent</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit AI Agent Modal -->
-    <div class="modal fade" id="editAIAgentModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Edit AI Agent</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="edit-ai-agent-form">
-                    <input type="hidden" id="edit-agent-id" name="agent_id">
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-agent-name" class="form-label">Agent Name</label>
-                                <input type="text" class="form-control" id="edit-agent-name" name="name" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-agent-platform" class="form-label">Platform</label>
-                                <select class="form-select" id="edit-agent-platform" name="platform" required>
-                                    <option value="m365_copilot">M365 Copilot</option>
-                                    <option value="perplexity">Perplexity API</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-agent-role" class="form-label">Role</label>
-                                <input type="text" class="form-control" id="edit-agent-role" name="role" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-agent-priority" class="form-label">Priority</label>
-                                <select class="form-select" id="edit-agent-priority" name="priority" required>
-                                    <option value="1">Primary</option>
-                                    <option value="2">Secondary</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit-agent-description" class="form-label">Description</label>
-                            <textarea class="form-control" id="edit-agent-description" name="description" rows="3"></textarea>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-api-url" class="form-label">API URL</label>
-                                <input type="url" class="form-control" id="edit-api-url" name="api_url" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-api-key" class="form-label">API Key</label>
-                                <input type="password" class="form-control" id="edit-api-key" name="api_key" required>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit-custom-prompt" class="form-label">Custom Prompt Template</label>
-                            <textarea class="form-control" id="edit-custom-prompt" name="custom_prompt" rows="4"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="edit-is-active" name="is_active">
-                                <label class="form-check-label" for="edit-is-active">
-                                    Active Agent
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Update AI Agent</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Add AI agent form
-        document.getElementById('add-ai-agent-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1><i class="fas fa-brain"></i> AI Agents Management</h1>
             
-            try {
-                const response = await fetch('/admin/ai-agents', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    alert('AI Agent added successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + result.detail);
-                }
-            } catch (error) {
-                alert('Error adding AI agent: ' + error.message);
-            }
-        });
-
-        // Edit AI agent form
-        document.getElementById('edit-ai-agent-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            const agentId = document.getElementById('edit-agent-id').value;
+            <!-- Add AI Agent Form -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-plus"></i> Add New AI Agent</h5>
+                </div>
+                <div class="card-body">
+                    <form id="addAIAgentForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Agent Name</label>
+                                    <input type="text" class="form-control" name="name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Agent Type</label>
+                                    <select class="form-select" name="agent_type" required>
+                                        <option value="">Select Type</option>
+                                        <option value="copilot">Microsoft 365 Copilot</option>
+                                        <option value="perplexity">Perplexity AI</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">API Key</label>
+                                    <input type="password" class="form-control" name="api_key">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">API Secret</label>
+                                    <input type="password" class="form-control" name="api_secret">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Endpoint URL</label>
+                                    <input type="url" class="form-control" name="endpoint_url">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Model Name</label>
+                                    <input type="text" class="form-control" name="model_name">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Role Description</label>
+                            <textarea class="form-control" name="role_description" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Add AI Agent
+                        </button>
+                    </form>
+                </div>
+            </div>
             
-            try {
-                const response = await fetch(`/admin/ai-agents/${agentId}`, {
-                    method: 'PUT',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    alert('AI Agent updated successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + result.detail);
-                }
-            } catch (error) {
-                alert('Error updating AI agent: ' + error.message);
-            }
+            <!-- AI Agents List -->
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-list"></i> Configured AI Agents</h5>
+                </div>
+                <div class="card-body">
+                    <div id="aiAgentsList">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Load AI agents on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadAIAgents();
+});
+
+// Add AI agent form submission
+document.getElementById('addAIAgentForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {
+        name: formData.get('name'),
+        agent_type: formData.get('agent_type'),
+        api_key: formData.get('api_key'),
+        api_secret: formData.get('api_secret'),
+        endpoint_url: formData.get('endpoint_url'),
+        model_name: formData.get('model_name'),
+        role_description: formData.get('role_description')
+    };
+    
+    try {
+        const response = await fetch('/admin/api/ai-agents', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
         });
-
-        function editAIAgent(agentId) {
-            // Fetch AI agent data and populate modal
-            fetch(`/admin/ai-agents/${agentId}`)
-                .then(response => response.json())
-                .then(agent => {
-                    document.getElementById('edit-agent-id').value = agent.id;
-                    document.getElementById('edit-agent-name').value = agent.name;
-                    document.getElementById('edit-agent-platform').value = agent.platform;
-                    document.getElementById('edit-agent-role').value = agent.role;
-                    document.getElementById('edit-agent-priority').value = agent.priority;
-                    document.getElementById('edit-agent-description').value = agent.description || '';
-                    document.getElementById('edit-api-url').value = agent.api_url;
-                    document.getElementById('edit-api-key').value = agent.api_key;
-                    document.getElementById('edit-custom-prompt').value = agent.custom_prompt || '';
-                    document.getElementById('edit-is-active').checked = agent.is_active;
-                    
-                    const editModal = new bootstrap.Modal(document.getElementById('editAIAgentModal'));
-                    editModal.show();
-                })
-                .catch(error => {
-                    alert('Error fetching AI agent data: ' + error.message);
-                });
+        
+        if (response.ok) {
+            alert('AI Agent added successfully!');
+            e.target.reset();
+            loadAIAgents();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
         }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+});
 
-        function testAIAgent(agentId) {
-            if (confirm('Test this AI agent?')) {
-                fetch(`/admin/ai-agents/${agentId}/test`, {
-                    method: 'POST'
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert('AI Agent test successful! Response: ' + result.response);
-                    } else {
-                        alert('AI Agent test failed: ' + result.detail);
-                    }
-                })
-                .catch(error => {
-                    alert('Error testing AI agent: ' + error.message);
-                });
-            }
-        }
+async function loadAIAgents() {
+    try {
+        const response = await fetch('/admin/api/ai-agents');
+        const agents = await response.json();
+        displayAIAgents(agents);
+    } catch (error) {
+        console.error('Error loading AI agents:', error);
+    }
+}
 
-        function viewAIAgentHistory(agentId) {
-            // Open history modal or redirect to history page
-            window.open(`/admin/ai-agents/${agentId}/history`, '_blank');
-        }
+function displayAIAgents(agents) {
+    const container = document.getElementById('aiAgentsList');
+    
+    if (agents.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No AI agents configured</p>';
+        return;
+    }
+    
+    const html = agents.map(agent => `
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h6>${agent.name}</h6>
+                        <p class="text-muted mb-1">${agent.agent_type.toUpperCase()}</p>
+                        <span class="badge bg-${agent.is_active ? 'success' : 'secondary'}">
+                            ${agent.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                        ${agent.model_name ? `<span class="badge bg-info ms-1">${agent.model_name}</span>` : ''}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editAIAgent(${agent.id})">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteAIAgent(${agent.id})">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = html;
+}
 
-        function deleteAIAgent(agentId) {
-            if (confirm('Are you sure you want to delete this AI agent? This action cannot be undone.')) {
-                fetch(`/admin/ai-agents/${agentId}`, {
-                    method: 'DELETE'
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert('AI Agent deleted successfully!');
-                        location.reload();
-                    } else {
-                        alert('Error: ' + result.detail);
-                    }
-                })
-                .catch(error => {
-                    alert('Error deleting AI agent: ' + error.message);
-                });
-            }
+async function deleteAIAgent(id) {
+    if (!confirm('Are you sure you want to delete this AI agent?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/admin/api/ai-agents/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('AI Agent deleted successfully!');
+            loadAIAgents();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
         }
-    </script>
-</body>
-</html>
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+</script>
+{% endblock %}

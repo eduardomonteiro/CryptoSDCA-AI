@@ -189,13 +189,17 @@ async def handle_generic_error(_: Request, exc: Exception):
         },
     )
 
-# Include routers
-app.include_router(admin.router, prefix="/admin")
-app.include_router(dashboard.router, prefix="/dashboard")
-app.include_router(history.router, prefix="/admin/history")
-app.include_router(api_settings.router, prefix="/admin/settings")
-app.include_router(trading.router, prefix="/api/trading")
-app.include_router(auth_router, prefix="/auth")
+# Include routers with proper prefixes
+# Frontend pages (HTML responses)
+app.include_router(admin.router, prefix="/admin", tags=["Admin Pages"])
+
+# API endpoints (JSON responses) - these are handled within the admin router
+# No need to include them separately as they're already in the admin router
+
+# Other routers
+app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+app.include_router(trading.router, prefix="/api/trading", tags=["Trading API"])
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 
 # Main routes
 @app.get("/", response_class=HTMLResponse)

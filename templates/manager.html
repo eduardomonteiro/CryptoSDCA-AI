@@ -1,130 +1,268 @@
 {% extends "base.html" %}
-{% block title %}Manager – CryptoSDCA-AI{% endblock %}
+
+{% block title %}Manager Dashboard - CryptoSDCA-AI{% endblock %}
 
 {% block content %}
-<div class="container my-4">
-  <h2 class="mb-4"><i class="fas fa-cog me-2"></i>Manager Panel</h2>
-
-  <ul class="nav nav-tabs" id="mgrTabs" role="tablist">
-    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#keys">Exchange Keys</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#agents">AI Agents</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#wallets">Wallets</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#settings">Bot Settings</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#presets">Indicator Presets</button></li>
-  </ul>
-
-  <div class="tab-content p-3 border border-top-0 rounded-bottom bg-white">
-    <!-- Exchange Keys ------------------------------------------------------>
-    <div class="tab-pane fade show active" id="keys" role="tabpanel">
-       <div class="d-flex justify-content-between align-items-center mb-2">
-         <h5>Exchange API Keys</h5>
-         <button class="btn btn-primary btn-sm" onclick="openKeyModal()">Add Key</button>
-       </div>
-       <div id="keysTable"></div>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1><i class="fas fa-tachometer-alt"></i> Manager Dashboard</h1>
+            
+            <!-- Bot Control -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-robot"></i> Bot Control</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <button class="btn btn-success btn-lg w-100 mb-2" onclick="startBot()">
+                                <i class="fas fa-play"></i> Start Bot
+                            </button>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-warning btn-lg w-100 mb-2" onclick="pauseBot()">
+                                <i class="fas fa-pause"></i> Pause Bot
+                            </button>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-danger btn-lg w-100 mb-2" onclick="stopBot()">
+                                <i class="fas fa-stop"></i> Stop Bot
+                            </button>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-dark btn-lg w-100 mb-2" onclick="emergencySell()">
+                                <i class="fas fa-exclamation-triangle"></i> Emergency Sell
+                            </button>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <div class="alert alert-info">
+                                <strong>Bot Status:</strong> <span id="botStatus">STOPPED</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Stats -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h4 class="text-primary" id="totalProfit">$0.00</h4>
+                            <p class="text-muted">Total Profit</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h4 class="text-success" id="activeOrders">0</h4>
+                            <p class="text-muted">Active Orders</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h4 class="text-info" id="aiConsensus">N/A</h4>
+                            <p class="text-muted">AI Consensus</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h4 class="text-warning" id="winRate">0%</h4>
+                            <p class="text-muted">Win Rate</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Activity -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-list"></i> Active Orders</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="activeOrdersList">
+                                <p class="text-muted text-center">No active orders</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-history"></i> Recent Trades</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="recentTradesList">
+                                <p class="text-muted text-center">No recent trades</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <!-- Agents ------------------------------------------------------------->
-    <div class="tab-pane fade" id="agents" role="tabpanel">
-       <div class="d-flex justify-content-between align-items-center mb-2">
-         <h5>AI Agents</h5>
-         <button class="btn btn-primary btn-sm" onclick="openAgentModal()">Add Agent</button>
-       </div>
-       <div id="agentTable"></div>
-    </div>
-
-    <!-- Wallets ------------------------------------------------------------>
-    <div class="tab-pane fade" id="wallets" role="tabpanel">
-       <div class="d-flex justify-content-between align-items-center mb-2">
-         <h5>Funding Wallets</h5>
-         <button class="btn btn-primary btn-sm" onclick="openWalletModal()">Add Wallet</button>
-       </div>
-       <div id="walletTable"></div>
-    </div>
-
-    <!-- Settings ----------------------------------------------------------->
-    <div class="tab-pane fade" id="settings" role="tabpanel">
-       <h5 class="mb-3">Bot Settings</h5>
-       <form id="settingsForm" class="row g-3"></form>
-       <button class="btn btn-success" onclick="saveSettings()">Save</button>
-    </div>
-
-    <!-- Presets ------------------------------------------------------------>
-    <div class="tab-pane fade" id="presets" role="tabpanel">
-       <div class="d-flex justify-content-between align-items-center mb-2">
-         <h5>Indicator Presets</h5>
-         <button class="btn btn-primary btn-sm" onclick="openPresetModal()">Add Preset</button>
-       </div>
-       <div id="presetTable"></div>
-    </div>
-  </div>
 </div>
-
-<!-- Modals are appended here by JS -->
-<div id="modalContainer"></div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/axios@1.5.0/dist/axios.min.js"></script>
 <script>
-const api = axios.create({ baseURL: '/api/manager' });
-
-// -------------- Exchange Keys --------------------------------------------
-async function refreshKeys(){
-  const {data} = await api.get('/keys');
-  const rows = data.map(k=>`
-    <tr>
-     <td>${k.name}</td><td>${k.exchange}</td>
-     <td>${k.sandbox ? 'Yes':'No'}</td>
-     <td>${k.active ? '✅':'❌'}</td>
-     <td>${new Date(k.last_update).toLocaleString()}</td>
-     <td>
-        <button class="btn btn-sm btn-outline-danger" onclick="delKey(${k.id})">
-          <i class="fas fa-trash"></i>
-        </button>
-     </td>
-    </tr>`).join('');
-  document.getElementById('keysTable').innerHTML =
-    `<table class="table table-sm">
-        <thead><th>Label</th><th>Exch.</th><th>Sandbox</th><th>Active</th><th>Modified</th><th></th></thead>
-        <tbody>${rows}</tbody>
-     </table>`;
-}
-async function delKey(id){ await api.delete('/keys/'+id); refreshKeys(); }
-
-// add similar refreshAgent/Wallet/Preset functions …
-
-// -------------- Bot settings (single row) --------------------------------
-async function loadSettings(){
- const {data} = await api.get('/settings');
- const f=document.getElementById('settingsForm');
- f.innerHTML=`
-   <div class="col-md-3">
-     <label class="form-label">Daily Profit %</label>
-     <input class="form-control" name="daily_profit_target" value="${data.daily_profit_target}">
-   </div>
-   <div class="col-md-3">
-     <label class="form-label">Global Stop-loss %</label>
-     <input class="form-control" name="global_stop_loss" value="${data.global_stop_loss}">
-   </div>
-   <div class="col-md-3">
-     <label class="form-label">Min Notional ($)</label>
-     <input class="form-control" name="min_notional" value="${data.min_notional}">
-   </div>
-   <div class="col-md-3">
-     <label class="form-label">Max Hours</label>
-     <input class="form-control" name="max_hours" value="${data.max_hours}">
-   </div>`;
-}
-async function saveSettings(){
-  const fd=new FormData(document.getElementById('settingsForm'));
-  await api.put('/settings',fd);
-  alert('Settings saved!');
-}
-
-document.addEventListener('DOMContentLoaded', ()=>{
-  refreshKeys();
-  loadSettings();
-  // refresh other tables…
+// Load dashboard data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData();
+    // Refresh every 30 seconds
+    setInterval(loadDashboardData, 30000);
 });
+
+async function loadDashboardData() {
+    try {
+        // Load bot status
+        const statusResponse = await fetch('/api/trading/status');
+        const statusData = await statusResponse.json();
+        document.getElementById('botStatus').textContent = statusData.status || 'STOPPED';
+        
+        // Load trading statistics
+        const statsResponse = await fetch('/api/trading/statistics');
+        const statsData = await statsResponse.json();
+        
+        document.getElementById('totalProfit').textContent = `$${statsData.total_pnl || 0}`;
+        document.getElementById('activeOrders').textContent = statsData.open_trades || 0;
+        document.getElementById('winRate').textContent = `${statsData.win_rate || 0}%`;
+        
+        // Load active orders
+        const ordersResponse = await fetch('/api/trading/trades?status=open');
+        const ordersData = await ordersResponse.json();
+        displayActiveOrders(ordersData);
+        
+        // Load recent trades
+        const tradesResponse = await fetch('/api/trading/trades?limit=5');
+        const tradesData = await tradesResponse.json();
+        displayRecentTrades(tradesData);
+        
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+    }
+}
+
+function displayActiveOrders(orders) {
+    const container = document.getElementById('activeOrdersList');
+    
+    if (!orders || orders.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No active orders</p>';
+        return;
+    }
+    
+    const html = orders.map(order => `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+                <strong>${order.pair || 'N/A'}</strong><br>
+                <small class="text-muted">${order.side || 'N/A'} - ${order.size || 'N/A'}</small>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-${order.status === 'open' ? 'warning' : 'secondary'}">${order.status || 'N/A'}</span><br>
+                <small class="text-muted">$${order.price || 'N/A'}</small>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = html;
+}
+
+function displayRecentTrades(trades) {
+    const container = document.getElementById('recentTradesList');
+    
+    if (!trades || trades.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No recent trades</p>';
+        return;
+    }
+    
+    const html = trades.map(trade => `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+                <strong>${trade.pair || 'N/A'}</strong><br>
+                <small class="text-muted">${trade.side || 'N/A'} - ${trade.size || 'N/A'}</small>
+            </div>
+            <div class="text-end">
+                <span class="text-${trade.pnl >= 0 ? 'success' : 'danger'}">$${trade.pnl ? trade.pnl.toFixed(2) : 'N/A'}</span><br>
+                <small class="text-muted">${trade.status || 'N/A'}</small>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = html;
+}
+
+async function startBot() {
+    try {
+        const response = await fetch('/api/trading/start', { method: 'POST' });
+        if (response.ok) {
+            alert('Bot started successfully!');
+            loadDashboardData();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function pauseBot() {
+    try {
+        const response = await fetch('/api/trading/pause', { method: 'POST' });
+        if (response.ok) {
+            alert('Bot paused successfully!');
+            loadDashboardData();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function stopBot() {
+    try {
+        const response = await fetch('/api/trading/stop', { method: 'POST' });
+        if (response.ok) {
+            alert('Bot stopped successfully!');
+            loadDashboardData();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function emergencySell() {
+    if (!confirm('Are you sure you want to emergency sell all positions? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/trading/emergency-sell', { method: 'POST' });
+        if (response.ok) {
+            alert('Emergency sell executed successfully!');
+            loadDashboardData();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
 </script>
 {% endblock %}

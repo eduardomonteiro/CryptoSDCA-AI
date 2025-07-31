@@ -1,452 +1,196 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Exchange Management - CryptoSDCA-AI</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .admin-card {
-            background: white;
-            border-radius: 1rem;
-            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
-        }
-        .table th {
-            background-color: #f8f9fa;
-            border-top: none;
-        }
-        .exchange-status {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        .status-connected { background-color: #28a745; }
-        .status-disconnected { background-color: #dc3545; }
-        .status-connecting { background-color: #ffc107; }
-    </style>
-</head>
-<body class="bg-light">
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/admin">
-                <i class="fas fa-robot me-2"></i>CryptoSDCA-AI Admin
-            </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/admin">
-                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
-                </a>
-                <a class="nav-link" href="/admin/users">
-                    <i class="fas fa-users me-1"></i>Users
-                </a>
-                <a class="nav-link active" href="/admin/exchanges">
-                    <i class="fas fa-exchange-alt me-1"></i>Exchanges
-                </a>
-                <a class="nav-link" href="/admin/ai-agents">
-                    <i class="fas fa-brain me-1"></i>AI Agents
-                </a>
-                <a class="nav-link" href="/admin/system-config">
-                    <i class="fas fa-cogs me-1"></i>System Config
-                </a>
-                <a class="nav-link" href="/auth/logout">
-                    <i class="fas fa-sign-out-alt me-1"></i>Logout
-                </a>
-            </div>
-        </div>
-    </nav>
+{% extends "base.html" %}
 
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="fas fa-exchange-alt me-2"></i>Exchange Management</h2>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addExchangeModal">
-                <i class="fas fa-plus me-2"></i>Add Exchange
-            </button>
-        </div>
+{% block title %}Exchange Management - CryptoSDCA-AI{% endblock %}
 
-        <!-- Exchange Statistics -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-primary">{{ stats.exchanges.total }}</h4>
-                    <p class="text-muted mb-0">Total Exchanges</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-success">{{ stats.exchanges.connected }}</h4>
-                    <p class="text-muted mb-0">Connected</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-warning">{{ stats.exchanges.active }}</h4>
-                    <p class="text-muted mb-0">Active</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="admin-card p-3 text-center">
-                    <h4 class="text-info">{{ stats.exchanges.total_volume }}</h4>
-                    <p class="text-muted mb-0">Total Volume (24h)</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Exchanges Table -->
-        <div class="admin-card p-4">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Exchange</th>
-                            <th>User</th>
-                            <th>Type</th>
-                            <th>Status</th>
-                            <th>Balance</th>
-                            <th>Last Sync</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for exchange in exchanges %}
-                        <tr>
-                            <td>{{ exchange.id }}</td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <img src="/static/images/exchanges/{{ exchange.name.lower() }}.png" 
-                                         alt="{{ exchange.name }}" class="me-2" style="width: 24px; height: 24px;">
-                                    <strong>{{ exchange.name }}</strong>
-                                </div>
-                            </td>
-                            <td>{{ exchange.user.username }}</td>
-                            <td>
-                                <span class="badge {% if exchange.exchange_type == 'spot' %}bg-primary{% elif exchange.exchange_type == 'margin' %}bg-warning{% else %}bg-info{% endif %}">
-                                    {{ exchange.exchange_type.title() }}
-                                </span>
-                            </td>
-                            <td>
-                                <span class="exchange-status status-{{ exchange.status }}"></span>
-                                <span class="badge {% if exchange.status == 'connected' %}bg-success{% elif exchange.status == 'disconnected' %}bg-danger{% else %}bg-warning{% endif %}">
-                                    {{ exchange.status.title() }}
-                                </span>
-                            </td>
-                            <td>
-                                {% if exchange.balance %}
-                                <div class="small">
-                                    <div>USDT: {{ "%.2f"|format(exchange.balance.get('USDT', 0)) }}</div>
-                                    <div>USDC: {{ "%.2f"|format(exchange.balance.get('USDC', 0)) }}</div>
-                                    <div>DAI: {{ "%.2f"|format(exchange.balance.get('DAI', 0)) }}</div>
-                                </div>
-                                {% else %}
-                                <span class="text-muted">N/A</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ exchange.last_sync.strftime('%Y-%m-%d %H:%M') if exchange.last_sync else 'Never' }}</td>
-                            <td>
-                                <div class="btn-group" role="group">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="editExchange({{ exchange.id }})">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success" onclick="testConnection({{ exchange.id }})">
-                                        <i class="fas fa-plug"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info" onclick="syncBalance({{ exchange.id }})">
-                                        <i class="fas fa-sync"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteExchange({{ exchange.id }})">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Exchange Modal -->
-    <div class="modal fade" id="addExchangeModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New Exchange</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="add-exchange-form">
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="exchange-name" class="form-label">Exchange</label>
-                                <select class="form-select" id="exchange-name" name="name" required>
-                                    <option value="">Select Exchange</option>
-                                    <option value="binance">Binance</option>
-                                    <option value="kucoin">KuCoin</option>
-                                    <option value="bingx">BingX</option>
-                                    <option value="kraken">Kraken</option>
-                                    <option value="bybit">Bybit</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="exchange-type" class="form-label">Type</label>
-                                <select class="form-select" id="exchange-type" name="exchange_type" required>
-                                    <option value="spot">Spot</option>
-                                    <option value="margin">Margin</option>
-                                    <option value="futures">Futures</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="api-key" class="form-label">API Key</label>
-                                <input type="text" class="form-control" id="api-key" name="api_key" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="api-secret" class="form-label">API Secret</label>
-                                <input type="password" class="form-control" id="api-secret" name="api_secret" required>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="passphrase" class="form-label">Passphrase (if required)</label>
-                                <input type="password" class="form-control" id="passphrase" name="passphrase">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="sandbox" class="form-label">Environment</label>
-                                <select class="form-select" id="sandbox" name="sandbox">
-                                    <option value="false">Live Trading</option>
-                                    <option value="true">Sandbox/Testnet</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="is-active" name="is_active" checked>
-                                <label class="form-check-label" for="is-active">
-                                    Active Exchange
-                                </label>
-                            </div>
-                        </div>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>Security Note:</strong> API keys are encrypted and stored securely. 
-                            Make sure your API keys have the necessary permissions for trading and reading account information.
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Add Exchange</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit Exchange Modal -->
-    <div class="modal fade" id="editExchangeModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Edit Exchange</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="edit-exchange-form">
-                    <input type="hidden" id="edit-exchange-id" name="exchange_id">
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-exchange-name" class="form-label">Exchange</label>
-                                <select class="form-select" id="edit-exchange-name" name="name" required>
-                                    <option value="binance">Binance</option>
-                                    <option value="kucoin">KuCoin</option>
-                                    <option value="bingx">BingX</option>
-                                    <option value="kraken">Kraken</option>
-                                    <option value="bybit">Bybit</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-exchange-type" class="form-label">Type</label>
-                                <select class="form-select" id="edit-exchange-type" name="exchange_type" required>
-                                    <option value="spot">Spot</option>
-                                    <option value="margin">Margin</option>
-                                    <option value="futures">Futures</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-api-key" class="form-label">API Key</label>
-                                <input type="text" class="form-control" id="edit-api-key" name="api_key" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-api-secret" class="form-label">API Secret</label>
-                                <input type="password" class="form-control" id="edit-api-secret" name="api_secret" required>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-passphrase" class="form-label">Passphrase (if required)</label>
-                                <input type="password" class="form-control" id="edit-passphrase" name="passphrase">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="edit-sandbox" class="form-label">Environment</label>
-                                <select class="form-select" id="edit-sandbox" name="sandbox">
-                                    <option value="false">Live Trading</option>
-                                    <option value="true">Sandbox/Testnet</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="edit-is-active" name="is_active">
-                                <label class="form-check-label" for="edit-is-active">
-                                    Active Exchange
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Update Exchange</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Add exchange form
-        document.getElementById('add-exchange-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1><i class="fas fa-exchange-alt"></i> Exchange Management</h1>
             
-            try {
-                const response = await fetch('/admin/exchanges', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    alert('Exchange added successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + result.detail);
-                }
-            } catch (error) {
-                alert('Error adding exchange: ' + error.message);
-            }
-        });
-
-        // Edit exchange form
-        document.getElementById('edit-exchange-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            const exchangeId = document.getElementById('edit-exchange-id').value;
+            <!-- Add Exchange Form -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-plus"></i> Add New Exchange</h5>
+                </div>
+                <div class="card-body">
+                    <form id="addExchangeForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Exchange</label>
+                                    <select class="form-select" name="name" required>
+                                        <option value="">Select Exchange</option>
+                                        <option value="binance">Binance</option>
+                                        <option value="kucoin">KuCoin</option>
+                                        <option value="bingx">BingX</option>
+                                        <option value="kraken">Kraken</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Display Name</label>
+                                    <input type="text" class="form-control" name="display_name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">API Key</label>
+                                    <input type="text" class="form-control" name="api_key" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">API Secret</label>
+                                    <input type="password" class="form-control" name="api_secret" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">API Passphrase (KuCoin only)</label>
+                                    <input type="password" class="form-control" name="api_passphrase">
+                                </div>
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="is_testnet" id="isTestnet">
+                                        <label class="form-check-label" for="isTestnet">
+                                            Use Testnet/Sandbox
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Add Exchange
+                        </button>
+                    </form>
+                </div>
+            </div>
             
-            try {
-                const response = await fetch(`/admin/exchanges/${exchangeId}`, {
-                    method: 'PUT',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    alert('Exchange updated successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + result.detail);
-                }
-            } catch (error) {
-                alert('Error updating exchange: ' + error.message);
-            }
+            <!-- Exchanges List -->
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-list"></i> Configured Exchanges</h5>
+                </div>
+                <div class="card-body">
+                    <div id="exchangesList">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Load exchanges on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadExchanges();
+});
+
+// Add exchange form submission
+document.getElementById('addExchangeForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {
+        name: formData.get('name'),
+        display_name: formData.get('display_name'),
+        api_key: formData.get('api_key'),
+        api_secret: formData.get('api_secret'),
+        api_passphrase: formData.get('api_passphrase'),
+        is_testnet: formData.get('is_testnet') === 'on'
+    };
+    
+    try {
+        const response = await fetch('/admin/api/exchanges', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
         });
-
-        function editExchange(exchangeId) {
-            // Fetch exchange data and populate modal
-            fetch(`/admin/exchanges/${exchangeId}`)
-                .then(response => response.json())
-                .then(exchange => {
-                    document.getElementById('edit-exchange-id').value = exchange.id;
-                    document.getElementById('edit-exchange-name').value = exchange.name;
-                    document.getElementById('edit-exchange-type').value = exchange.exchange_type;
-                    document.getElementById('edit-api-key').value = exchange.api_key;
-                    document.getElementById('edit-api-secret').value = exchange.api_secret;
-                    document.getElementById('edit-passphrase').value = exchange.passphrase || '';
-                    document.getElementById('edit-sandbox').value = exchange.sandbox.toString();
-                    document.getElementById('edit-is-active').checked = exchange.is_active;
-                    
-                    const editModal = new bootstrap.Modal(document.getElementById('editExchangeModal'));
-                    editModal.show();
-                })
-                .catch(error => {
-                    alert('Error fetching exchange data: ' + error.message);
-                });
+        
+        if (response.ok) {
+            alert('Exchange added successfully!');
+            e.target.reset();
+            loadExchanges();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
         }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+});
 
-        function testConnection(exchangeId) {
-            if (confirm('Test connection to this exchange?')) {
-                fetch(`/admin/exchanges/${exchangeId}/test-connection`, {
-                    method: 'POST'
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert('Connection test successful!');
-                    } else {
-                        alert('Connection test failed: ' + result.detail);
-                    }
-                })
-                .catch(error => {
-                    alert('Error testing connection: ' + error.message);
-                });
-            }
-        }
+async function loadExchanges() {
+    try {
+        const response = await fetch('/admin/api/exchanges');
+        const exchanges = await response.json();
+        displayExchanges(exchanges);
+    } catch (error) {
+        console.error('Error loading exchanges:', error);
+    }
+}
 
-        function syncBalance(exchangeId) {
-            if (confirm('Sync balance for this exchange?')) {
-                fetch(`/admin/exchanges/${exchangeId}/sync-balance`, {
-                    method: 'POST'
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert('Balance synced successfully!');
-                        location.reload();
-                    } else {
-                        alert('Balance sync failed: ' + result.detail);
-                    }
-                })
-                .catch(error => {
-                    alert('Error syncing balance: ' + error.message);
-                });
-            }
-        }
+function displayExchanges(exchanges) {
+    const container = document.getElementById('exchangesList');
+    
+    if (exchanges.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No exchanges configured</p>';
+        return;
+    }
+    
+    const html = exchanges.map(exchange => `
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h6>${exchange.display_name}</h6>
+                        <p class="text-muted mb-1">${exchange.name.toUpperCase()}</p>
+                        <span class="badge bg-${exchange.is_active ? 'success' : 'secondary'}">
+                            ${exchange.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                        ${exchange.is_testnet ? '<span class="badge bg-warning ms-1">Testnet</span>' : ''}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editExchange(${exchange.id})">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteExchange(${exchange.id})">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = html;
+}
 
-        function deleteExchange(exchangeId) {
-            if (confirm('Are you sure you want to delete this exchange? This action cannot be undone.')) {
-                fetch(`/admin/exchanges/${exchangeId}`, {
-                    method: 'DELETE'
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert('Exchange deleted successfully!');
-                        location.reload();
-                    } else {
-                        alert('Error: ' + result.detail);
-                    }
-                })
-                .catch(error => {
-                    alert('Error deleting exchange: ' + error.message);
-                });
-            }
+async function deleteExchange(id) {
+    if (!confirm('Are you sure you want to delete this exchange?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/admin/api/exchanges/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('Exchange deleted successfully!');
+            loadExchanges();
+        } else {
+            const error = await response.json();
+            alert('Error: ' + error.detail);
         }
-    </script>
-</body>
-</html>
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+</script>
+{% endblock %}
