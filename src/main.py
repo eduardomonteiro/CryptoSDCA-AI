@@ -140,11 +140,10 @@ async def lifespan(app: FastAPI):
 
 # FastAPI app
 app = FastAPI(
-    title=settings.app_name,
-    description="Advanced crypto trading bot with AI validation and DCA strategy",
-    version=settings.version,
-    debug=settings.debug,
-    lifespan=lifespan,
+    title="CryptoSDCA-AI",
+    version="1.0.0",
+    description="Intelligent Multi-Layer DCA Trading Bot with AI Validation",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -191,12 +190,12 @@ async def handle_generic_error(_: Request, exc: Exception):
     )
 
 # Include routers
-app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
-app.include_router(admin.router, prefix="/admin", tags=["Administration"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(trading.router, prefix="/api/trading", tags=["Trading"])
-app.include_router(history.router, prefix="/api/history", tags=["History"])
-app.include_router(api_settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(admin.router, prefix="/admin")
+app.include_router(dashboard.router, prefix="/dashboard")
+app.include_router(history.router, prefix="/admin/history")
+app.include_router(api_settings.router, prefix="/admin/settings")
+app.include_router(trading.router, prefix="/api/trading")
+app.include_router(auth_router, prefix="/auth")
 
 # Main routes
 @app.get("/", response_class=HTMLResponse)
